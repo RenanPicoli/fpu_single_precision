@@ -1,4 +1,5 @@
 *.bak
 *.pdf
 db/
+incremental_db/
 simulation/
