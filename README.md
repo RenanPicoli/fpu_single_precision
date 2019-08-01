@@ -5,3 +5,5 @@ It supports four operations: addition, subtraction, multiplication and division
 +Inf,-Inf,+0,-0,NaN are supported.
 
 No rounding, exception handling or overflow/underflow detection yet.
+
+Files for quartus project are included.
