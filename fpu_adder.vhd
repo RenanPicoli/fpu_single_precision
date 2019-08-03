@@ -19,6 +19,8 @@ port (
 	A: in std_logic_vector(31 downto 0);--supposed to be normalized
 	B: in std_logic_vector(31 downto 0);--supposed to be normalized
 	-------NEED ADD FLAGS (overflow, underflow, etc)
+	overflow:		out std_logic;
+	underflow:		out std_logic;
 	result:buffer std_logic_vector(31 downto 0)
 );
 end entity;
