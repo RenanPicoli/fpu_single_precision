@@ -53,7 +53,7 @@ begin
 				else '0';
 	
 	R(n)	<= (A_inter(n-1) - ('0' & B_expanded_mantissa)) when (C(n-1) = '1')
-			else A_inter(n-1);
+				else A_inter(n-1);
 					
 	A_inter(n)	<= R(n)(23 downto 0) & '0';--multiplica o resto intermediário por 2
 
@@ -72,8 +72,23 @@ process(A,B,A_fp,B_fp,res_expanded_mantissa)
 	variable res_mantissa: std_logic_vector(22 downto 0);
 	variable res_exp: integer;
 	variable res_sign: std_logic;	
+	variable res_exp_aux: std_logic_vector(8 downto 0);--1 additional bit for overflow detection
+	variable overflow_aux: std_logic;--auxiliary variable
+	variable underflow_aux: std_logic;--auxiliary variable
 	
 	begin
+	
+	A_exp:= to_integer(unsigned(A_fp.exponent));
+	B_exp:= to_integer(unsigned(B_fp.exponent));
+	res_exp := A_exp - B_exp + EXP_BIAS;--this int varies from 0-255+127=-128=1'1000'0000 to 255-0+127=382=1'0111'1110
+	
+	--overflow/underflow detection. See ovflw_undflw.txt for explanation
+	res_exp_aux := std_logic_vector(to_unsigned(res_exp,9));
+	overflow_aux := res_exp_aux(8) and (not res_exp_aux(7));
+	underflow_aux := res_exp_aux(8) and  res_exp_aux(7);
+	--overflow/underflow handling
+	overflow <= overflow_aux;
+	underflow<= underflow_aux;
 	
 	-- pre-multiplier: trivial cases
 	if ((A_fp.exponent = x"FF" and A_fp.mantissa > 0) or
@@ -95,17 +110,45 @@ process(A,B,A_fp,B_fp,res_expanded_mantissa)
 
 	-- division: normal case
 	else
-		A_exp:= to_integer(unsigned(A_fp.exponent));
-		B_exp:= to_integer(unsigned(B_fp.exponent));
-		res_exp := A_exp - B_exp + EXP_BIAS;
+--		A_exp:= to_integer(unsigned(A_fp.exponent));
+--		B_exp:= to_integer(unsigned(B_fp.exponent));
+--		res_exp := A_exp - B_exp + EXP_BIAS;--this int varies from 0-255+127=-128=1'1000'0000 to 255-0+127=382=1'0111'1110
+--		
+--		--overflow/underflow detection. See ovflw_undflw.txt for explanation
+--		res_exp_aux := std_logic_vector(to_unsigned(res_exp,9));
+----		overflow_aux := res_exp_aux(8) and (not res_exp_aux(7));
+----		underflow_aux := res_exp_aux(8) and  res_exp_aux(7);
 		
-	
-	-- normalization: only 2 cases: C0C1=1X or C0C1=01
+		-- normalization: only 2 cases: C0C1=1X or C0C1=01
 		if res_expanded_mantissa(23)='1' then--no need for normalization
 			result <= (A_fp.sign xor B_fp.sign) & std_logic_vector(to_unsigned(res_exp,8)) & res_expanded_mantissa(22 downto 0);
 		else--C(0)='0' but C(1)='1'
 			result <= (A_fp.sign xor B_fp.sign) & std_logic_vector(to_unsigned(res_exp-1,8)) & res_expanded_mantissa(21 downto 0) & '0';
 		end if;
+		
+--		--overflow/underflow handling
+--		overflow <= overflow_aux;
+--		underflow<= underflow_aux;
+		if(overflow_aux='1') then--result is set to +/-Inf
+			result <= (A_fp.sign xor B_fp.sign) & positive_Inf(30 downto 0);
+--			overflow <='1';
+--			underflow <='0';
+		elsif (underflow_aux='1') then--result is set to +/-0
+			result <= (A_fp.sign xor B_fp.sign) & positive_zero(30 downto 0);
+--			underflow<='1';
+--			overflow<='0';
+--		else
+--			overflow <= '0';
+--			underflow<='0';
+		end if;
 	end if;
+	
+	--division by zero
+	if ((B = positive_zero) or (B = negative_zero)) then 
+		divideByZero <= '1';
+	else
+		divideByZero <= '0';
+	end if;
+
 end process;
 end bhv;
