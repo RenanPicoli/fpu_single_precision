@@ -18,7 +18,7 @@ entity fpu_adder is
 port (
 	A: in std_logic_vector(31 downto 0);--supposed to be normalized
 	B: in std_logic_vector(31 downto 0);--supposed to be normalized
-	-------NEED ADD FLAGS (overflow, underflow, etc)
+	--FLAGS (overflow, underflow, etc)
 	overflow:		out std_logic;
 	underflow:		out std_logic;
 	result:buffer std_logic_vector(31 downto 0)
@@ -47,6 +47,9 @@ process(A,B,A_fp,B_fp)
 	variable res_exp: integer;
 	variable res_sign: std_logic;
 	variable count: integer;
+	variable res_exp_aux: std_logic_vector(8 downto 0);--1 additional bit for overflow/underflow detection
+	variable overflow_aux: std_logic;--auxiliary variable
+	variable underflow_aux: std_logic;--auxiliary variable
 
 	begin
 	A_exp:= to_integer(unsigned(A_fp.exponent));
@@ -55,6 +58,13 @@ process(A,B,A_fp,B_fp)
 	B_expanded_mantissa := '1' & B_fp.mantissa;
 	shifted_A_expanded_mantissa := unsigned(A_expanded_mantissa);--initial value
 	shifted_B_expanded_mantissa := unsigned(B_expanded_mantissa);--initial value
+	
+	--overflow/underflow detection. See ovflw_undflw.txt for explanation
+	res_exp_aux := std_logic_vector(to_unsigned(res_exp,9));
+	overflow_aux := res_exp_aux(8) and (not res_exp_aux(7));
+	underflow_aux := res_exp_aux(8) and  res_exp_aux(7);
+	overflow <= overflow_aux;
+	underflow<= underflow_aux;
 	
 	-- pre-adder
 	if ((A = positive_zero or A = negative_zero) or
@@ -135,7 +145,14 @@ process(A,B,A_fp,B_fp)
 				res_mantissa := (others=>'0');
 				res_exp := 0;
 			end if;
-			result <= res_sign & std_logic_vector(to_unsigned(res_exp,8)) & res_mantissa;	
+			result <= res_sign & std_logic_vector(to_unsigned(res_exp,8)) & res_mantissa;
+			
+			--overflow/underflow handling
+			if(overflow_aux='1') then--result is set to +/-Inf
+				result <= res_sign & positive_Inf(30 downto 0);
+			elsif (underflow_aux='1') then--result is set to +/-0
+				result <= res_sign & positive_zero(30 downto 0);
+			end if;
 		
 		end if;
 	end if;	

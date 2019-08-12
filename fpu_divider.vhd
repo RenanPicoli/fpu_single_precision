@@ -72,7 +72,7 @@ process(A,B,A_fp,B_fp,res_expanded_mantissa)
 	variable res_mantissa: std_logic_vector(22 downto 0);
 	variable res_exp: integer;
 	variable res_sign: std_logic;	
-	variable res_exp_aux: std_logic_vector(8 downto 0);--1 additional bit for overflow detection
+	variable res_exp_aux: std_logic_vector(8 downto 0);--1 additional bit for overflow/underflow detection
 	variable overflow_aux: std_logic;--auxiliary variable
 	variable underflow_aux: std_logic;--auxiliary variable
 	
@@ -84,7 +84,6 @@ process(A,B,A_fp,B_fp,res_expanded_mantissa)
 	
 	--overflow/underflow detection. See ovflw_undflw.txt for explanation
 	res_exp_aux := std_logic_vector(to_unsigned(res_exp,9));
-	--overflow/underflow handling
 	overflow_aux := res_exp_aux(8) and (not res_exp_aux(7));
 	underflow_aux := res_exp_aux(8) and  res_exp_aux(7);
 	overflow <= overflow_aux;
@@ -117,6 +116,7 @@ process(A,B,A_fp,B_fp,res_expanded_mantissa)
 			result <= (A_fp.sign xor B_fp.sign) & std_logic_vector(to_unsigned(res_exp-1,8)) & res_expanded_mantissa(21 downto 0) & '0';
 		end if;
 
+		--overflow/underflow handling
 		if(overflow_aux='1') then--result is set to +/-Inf
 			result <= (A_fp.sign xor B_fp.sign) & positive_Inf(30 downto 0);
 		elsif (underflow_aux='1') then--result is set to +/-0

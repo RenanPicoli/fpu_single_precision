@@ -17,16 +17,23 @@ signal  	A: std_logic_vector(31 downto 0);
 signal	B: std_logic_vector(31 downto 0);
 signal	op:std_logic_vector( 1 downto 0);
 signal	result: std_logic_vector(31 downto 0);
-
+--FLAGS (div by zero, overflow, underflow, etc)
+signal divideByZero:	std_logic;
+signal overflow: std_logic;
+signal underflow: std_logic;
+	
 file 		file_vectors: text;-- open read_mode is "input_vectors.txt";--estrutura representando arquivo de entrada de dados
 
 begin
 
 	DUT: entity work.fpu
-	port map(A 		=> A,
-				B	 	=> B,
-				op 	=> op,
-				result=> result
+	port map(A 				=> A,
+				B	 			=> B,
+				op 			=> op,
+				divideByZero=> divideByZero,
+				overflow		=> overflow,
+				underflow	=> underflow,
+				result		=> result		
 	);
 	
 	op <= "11";--always divide numbers
