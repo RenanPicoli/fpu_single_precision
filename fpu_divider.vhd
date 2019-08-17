@@ -20,7 +20,7 @@ port (
 	divideByZero:	out std_logic;
 	overflow:		out std_logic;
 	underflow:		out std_logic;
-	result:out std_logic_vector(31 downto 0)--A/B
+	result:			out std_logic_vector(31 downto 0)--A/B
 );
 end entity;
 
@@ -83,7 +83,8 @@ process(A,B,A_fp,B_fp,res_expanded_mantissa)
 	res_exp := A_exp - B_exp + EXP_BIAS;--this int varies from 0-255+127=-128=1'1000'0000 to 255-0+127=382=1'0111'1110
 	
 	--overflow/underflow detection. See ovflw_undflw.txt for explanation
-	res_exp_aux := std_logic_vector(to_unsigned(res_exp,9));
+	--res_exp_aux := std_logic_vector(to_unsigned(res_exp,9));
+	res_exp_aux := ('0' & A_fp.exponent) - ('0' & B_fp.exponent) + EXP_BIAS;
 	overflow_aux := res_exp_aux(8) and (not res_exp_aux(7));
 	underflow_aux := res_exp_aux(8) and  res_exp_aux(7);
 	overflow <= overflow_aux;
