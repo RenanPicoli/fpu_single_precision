@@ -36,15 +36,12 @@ A_fp <= (A(31),A(30 downto 23),A(22 downto 0));
 B_fp <= (B(31),B(30 downto 23),B(22 downto 0));
 
 process(A,B,A_fp,B_fp)
-	variable A_exp:integer;
-	variable B_exp:integer;
 	variable A_expanded_mantissa: std_logic_vector(23 downto 0);
 	variable B_expanded_mantissa: std_logic_vector(23 downto 0);
 	variable shifted_A_expanded_mantissa: unsigned(23 downto 0);
 	variable shifted_B_expanded_mantissa: unsigned(23 downto 0);
 	variable res_expanded_mantissa: std_logic_vector(24 downto 0);
 	variable res_mantissa: std_logic_vector(22 downto 0);
-	variable res_exp: integer;
 	variable res_sign: std_logic;
 	variable count: integer;
 	variable res_exp_aux: std_logic_vector(8 downto 0);--1 additional bit for overflow/underflow detection
@@ -52,19 +49,10 @@ process(A,B,A_fp,B_fp)
 	variable underflow_aux: std_logic;--auxiliary variable
 
 	begin
-	A_exp:= to_integer(unsigned(A_fp.exponent));
-	B_exp:= to_integer(unsigned(B_fp.exponent));
 	A_expanded_mantissa := '1' & A_fp.mantissa;
 	B_expanded_mantissa := '1' & B_fp.mantissa;
 	shifted_A_expanded_mantissa := unsigned(A_expanded_mantissa);--initial value
 	shifted_B_expanded_mantissa := unsigned(B_expanded_mantissa);--initial value
-	
-	--overflow/underflow detection. See ovflw_undflw.txt for explanation
-	res_exp_aux := std_logic_vector(to_unsigned(res_exp,9));
-	overflow_aux := res_exp_aux(8) and (not res_exp_aux(7));
-	underflow_aux := res_exp_aux(8) and  res_exp_aux(7);
-	overflow <= overflow_aux;
-	underflow<= underflow_aux;
 	
 	-- pre-adder
 	if ((A = positive_zero or A = negative_zero) or
@@ -95,58 +83,63 @@ process(A,B,A_fp,B_fp)
 	else
 		if (A_fp.sign xor B_fp.sign)='0' then--same sign
 			res_sign := A_fp.sign;
-			if(A_exp > B_exp) then-- |A| > |B|
+			if(A_fp.exponent > B_fp.exponent) then-- |A| > |B|
 				--B needs to be shifted
-				shifted_B_expanded_mantissa := shift_right(unsigned(B_expanded_mantissa),A_exp-B_exp);
+				shifted_B_expanded_mantissa := shift_right(unsigned(B_expanded_mantissa),to_integer(unsigned(A_fp.exponent-B_fp.exponent)));
 				B_expanded_mantissa := std_logic_vector(shifted_B_expanded_mantissa);--shiftar mantissas até exponentes serem iguais
-				res_exp := A_exp;
+				res_exp_aux := '0' & A_fp.exponent;
 			else-- |A| =< |B|
 				--A needs to be expanded
-				shifted_A_expanded_mantissa := shift_right(unsigned(A_expanded_mantissa),B_exp-A_exp);
+				shifted_A_expanded_mantissa := shift_right(unsigned(A_expanded_mantissa),to_integer(unsigned(B_fp.exponent-A_fp.exponent)));
 				A_expanded_mantissa := std_logic_vector(shifted_A_expanded_mantissa);--shiftar mantissas até exponentes serem iguais
-				res_exp := B_exp;
+				res_exp_aux := '0' & B_fp.exponent;
 			end if;
 			res_expanded_mantissa := ('0'& A_expanded_mantissa) + ('0' & B_expanded_mantissa);
 			if(res_expanded_mantissa(24)='1')then--normalizacao
-				res_exp := res_exp + 1;
+				res_exp_aux := res_exp_aux + 1;
 				res_mantissa := res_expanded_mantissa (23 downto 1);
 			else
 				res_mantissa := res_expanded_mantissa(22 downto 0);
 			end if;
-			result <= res_sign & std_logic_vector(to_unsigned(res_exp,8)) & res_mantissa;
+			result <= res_sign & res_exp_aux(7 downto 0) & res_mantissa;
 			
 		else --different signs
 		
 			if((A_exp > B_exp) or ((A_exp=B_exp)and(A_expanded_mantissa > B_expanded_mantissa))) then--this ensures |A| > |B|
 				res_sign := A_fp.sign;
-				res_exp  := A_exp;
+				res_exp_aux  := '0' & A_fp.exponent;
 
-				shifted_B_expanded_mantissa := shift_right(unsigned(B_expanded_mantissa),A_exp-B_exp);
+				shifted_B_expanded_mantissa := shift_right(unsigned(B_expanded_mantissa),to_integer(unsigned(A_fp.exponent-B_fp.exponent)));
 				B_expanded_mantissa := std_logic_vector(shifted_B_expanded_mantissa);--shiftar mantissas até exponentes serem iguais
 				res_expanded_mantissa := ('0' & A_expanded_mantissa) - ('0' & B_expanded_mantissa);
 			else-- |A| <= |B|
 				res_sign := B_fp.sign;
-				res_exp  := B_exp;
+				res_exp_aux  := '0' & B_fp.exponent;
 				
-				shifted_A_expanded_mantissa := shift_right(unsigned(A_expanded_mantissa),B_exp-A_exp);
+				shifted_A_expanded_mantissa := shift_right(unsigned(A_expanded_mantissa),to_integer(unsigned(B_fp.exponent-A_fp.exponent)));
 				A_expanded_mantissa := std_logic_vector(shifted_A_expanded_mantissa);--shiftar mantissas até exponentes serem iguais
 				res_expanded_mantissa := ('0' & B_expanded_mantissa) - ('0' & A_expanded_mantissa);
 			end if;
 			
 			count := 23;--used in normalization, points to possible msb
 			while ((res_expanded_mantissa(23)='0') and (count>=0)) loop--normalization
-				res_exp := res_exp - 1;--pode ficar menor que 0
+				res_exp_aux := res_exp_aux - 1;--pode ficar menor que 0
 				count := count - 1;
 				res_expanded_mantissa := res_expanded_mantissa (23 downto 0) & '0';--sll
 			end loop;
-			if(count>=0 and res_exp > 0)then--normalization succeeded
+			if(count>=0 and res_exp_aux > 0)then--normalization succeeded
 				res_mantissa := res_expanded_mantissa (22 downto 0);
 			else--result is zero (0x00000000)
 				res_mantissa := (others=>'0');
-				res_exp := 0;
+				res_exp_aux := (others=>'0');
 			end if;
-			result <= res_sign & std_logic_vector(to_unsigned(res_exp,8)) & res_mantissa;
-			
+			result <= res_sign & res_exp_aux(7 downto 0) & res_mantissa;
+
+			--overflow/underflow detection. See ovflw_undflw.txt for explanation
+			overflow_aux := res_exp_aux(8) and (not res_exp_aux(7));
+			underflow_aux := res_exp_aux(8) and  res_exp_aux(7);
+			overflow <= overflow_aux;
+			underflow<= underflow_aux;			
 			--overflow/underflow handling
 			if(overflow_aux='1') then--result is set to +/-Inf
 				result <= res_sign & positive_Inf(30 downto 0);
