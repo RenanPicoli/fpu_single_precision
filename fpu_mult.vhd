@@ -54,13 +54,13 @@ begin
 	);
 
 process(A,B,A_fp,B_fp,P)
-	variable A_exp:integer;
-	variable B_exp:integer; 
 	variable shifted_A_expanded_mantissa: unsigned(23 downto 0);
 	variable shifted_B_expanded_mantissa: unsigned(23 downto 0);
 	variable res_expanded_mantissa: std_logic_vector(24 downto 0);
 	variable res_mantissa: std_logic_vector(22 downto 0);
-	variable res_exp: integer;
+	variable res_exp_aux: std_logic_vector(8 downto 0);--1 additional bit for overflow/underflow detection
+	variable overflow_aux: std_logic;--auxiliary variable
+	variable underflow_aux: std_logic;--auxiliary variable
 	variable res_sign: std_logic;	
 	
 	begin
@@ -96,22 +96,31 @@ process(A,B,A_fp,B_fp,P)
 	(B = positive_zero or B = negative_zero)) then-- check for zero
 		result <= (A_fp.sign xor B_fp.sign) & positive_zero(30 downto 0);
 	else
-		A_exp:= to_integer(unsigned(A_fp.exponent));
-		B_exp:= to_integer(unsigned(B_fp.exponent));
-		
 		res_sign := A_fp.sign xor B_fp.sign;
 		
-		res_exp := A_exp + B_exp - EXP_BIAS;
+		res_exp_aux := ('0' & A_fp.exponent) + ('0' & B_fp.exponent) - EXP_BIAS;
 		--normalization: only 2 cases: exp=A_exp+B_exp or exp=A_exp+B_exp+1
 		if (P(47)='1') then--exp=A_exp+B_exp+1
-			res_exp := res_exp + 1;
+			res_exp_aux := res_exp_aux + 1;
 			res_mantissa := P(46 downto 24);
 		else--exp=A_exp+B_exp
 			--keep current res_exp
 			res_mantissa := P(45 downto 23);--P(46) must be '1' if P(47)='0'
 		end if;
 		
-		result <= res_sign & std_logic_vector(to_unsigned(res_exp,8)) & res_mantissa;
+		result <= res_sign & res_exp_aux(7 downto 0) & res_mantissa;
+		
+		--overflow/underflow detection. See ovflw_undflw.txt for explanation
+		overflow_aux := res_exp_aux(8) and (not res_exp_aux(7));
+		underflow_aux := res_exp_aux(8) and  res_exp_aux(7);
+		overflow <= overflow_aux;
+		underflow<= underflow_aux;
+		--overflow/underflow handling
+		if(overflow_aux='1') then--result is set to +/-Inf
+			result <= (A_fp.sign xor B_fp.sign) & positive_Inf(30 downto 0);
+		elsif (underflow_aux='1') then--result is set to +/-0
+			result <= (A_fp.sign xor B_fp.sign) & positive_zero(30 downto 0);
+		end if;
 	end if;
 end process;
 end bhv;

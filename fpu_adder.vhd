@@ -105,7 +105,7 @@ process(A,B,A_fp,B_fp)
 			
 		else --different signs
 		
-			if((A_exp > B_exp) or ((A_exp=B_exp)and(A_expanded_mantissa > B_expanded_mantissa))) then--this ensures |A| > |B|
+			if((A_fp.exponent > B_fp.exponent) or ((A_fp.exponent=B_fp.exponent)and(A_expanded_mantissa > B_expanded_mantissa))) then--this ensures |A| > |B|
 				res_sign := A_fp.sign;
 				res_exp_aux  := '0' & A_fp.exponent;
 
