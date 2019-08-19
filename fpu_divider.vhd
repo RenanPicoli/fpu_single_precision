@@ -47,7 +47,7 @@ begin
 	A_fp <= (A(31),A(30 downto 23),A(22 downto 0));
 	B_fp <= (B(31),B(30 downto 23),B(22 downto 0));
 
---signal assignements
+--signal assignments
  lines: for n in 1 to 23 generate
 	C(n) <= '1' when (A_inter(n) >= '0' & B_expanded_mantissa)
 				else '0';
@@ -65,30 +65,18 @@ begin
  res_expanded_mantissa <= C;--C(0) might be '0', needs normalization below
 
 process(A,B,A_fp,B_fp,res_expanded_mantissa)
-	variable A_exp:integer;
-	variable B_exp:integer; 
 	variable shifted_A_expanded_mantissa: unsigned(23 downto 0);
 	variable shifted_B_expanded_mantissa: unsigned(23 downto 0);
 	variable res_mantissa: std_logic_vector(22 downto 0);
-	variable res_exp: integer;
 	variable res_sign: std_logic;	
 	variable res_exp_aux: std_logic_vector(8 downto 0);--1 additional bit for overflow/underflow detection
 	variable overflow_aux: std_logic;--auxiliary variable
 	variable underflow_aux: std_logic;--auxiliary variable
 	
 	begin
-	
-	A_exp:= to_integer(unsigned(A_fp.exponent));
-	B_exp:= to_integer(unsigned(B_fp.exponent));
-	res_exp := A_exp - B_exp + EXP_BIAS;--this int varies from 0-255+127=-128=1'1000'0000 to 255-0+127=382=1'0111'1110
-	
-	--overflow/underflow detection. See ovflw_undflw.txt for explanation
-	--res_exp_aux := std_logic_vector(to_unsigned(res_exp,9));
+
+	--this int varies from 0-255+127=-128=1'1000'0000 to 255-0+127=382=1'0111'1110
 	res_exp_aux := ('0' & A_fp.exponent) - ('0' & B_fp.exponent) + EXP_BIAS;
-	overflow_aux := res_exp_aux(8) and (not res_exp_aux(7));
-	underflow_aux := res_exp_aux(8) and  res_exp_aux(7);
-	overflow <= overflow_aux;
-	underflow<= underflow_aux;
 	
 	-- pre-multiplier: trivial cases
 	if ((A_fp.exponent = x"FF" and A_fp.mantissa > 0) or
@@ -112,11 +100,17 @@ process(A,B,A_fp,B_fp,res_expanded_mantissa)
 	else
 		-- normalization: only 2 cases: C0C1=1X or C0C1=01
 		if res_expanded_mantissa(23)='1' then--no need for normalization
-			result <= (A_fp.sign xor B_fp.sign) & std_logic_vector(to_unsigned(res_exp,8)) & res_expanded_mantissa(22 downto 0);
+			result <= (A_fp.sign xor B_fp.sign) & res_exp_aux(7 downto 0) & res_expanded_mantissa(22 downto 0);
 		else--C(0)='0' but C(1)='1'
-			result <= (A_fp.sign xor B_fp.sign) & std_logic_vector(to_unsigned(res_exp-1,8)) & res_expanded_mantissa(21 downto 0) & '0';
+			res_exp_aux := res_exp_aux - 1;--might produce underflow
+			result <= (A_fp.sign xor B_fp.sign) & res_exp_aux(7 downto 0) & res_expanded_mantissa(21 downto 0) & '0';
 		end if;
 
+		--overflow/underflow detection. See ovflw_undflw.txt for explanation
+		overflow_aux := res_exp_aux(8) and (not res_exp_aux(7));
+		underflow_aux := res_exp_aux(8) and  res_exp_aux(7);
+		overflow <= overflow_aux;
+		underflow<= underflow_aux;
 		--overflow/underflow handling
 		if(overflow_aux='1') then--result is set to +/-Inf
 			result <= (A_fp.sign xor B_fp.sign) & positive_Inf(30 downto 0);
