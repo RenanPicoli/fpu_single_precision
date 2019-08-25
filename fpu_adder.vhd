@@ -30,6 +30,8 @@ architecture bhv of fpu_adder is
 signal A_fp: float;
 signal B_fp: float;
 
+--signal res_exp_aux: std_logic_vector(8 downto 0);--1 additional bit for overflow/underflow detection
+
 begin
 
 A_fp <= (A(31),A(30 downto 23),A(22 downto 0));
@@ -57,30 +59,43 @@ process(A,B,A_fp,B_fp)
 	-- pre-adder
 	if ((A = positive_zero or A = negative_zero) or
 	(B = positive_zero or B = negative_zero)) then-- check for zero
+		overflow_aux := '0';
+		underflow_aux:= '0';
 		if (A = positive_zero or A = negative_zero) then
+			res_sign := B_fp.sign;
 			result <= B;
 		else--B must be zero
+			res_sign := A_fp.sign;
 			result <= A;
 		end if;
 	elsif ((A_fp.exponent = x"FF" and A_fp.mantissa > 0) or
 	(B_fp.exponent = x"FF" and B_fp.mantissa > 0)) then--check for NaN
+		res_sign := '1';
 		result <= NaN;
+		overflow_aux := '0';
+		underflow_aux:= '0';
 	elsif ((A = positive_Inf or A = negative_Inf) or
 	(B = positive_Inf or B = negative_Inf)) then--check for Inf
+		overflow_aux := '0';
+		underflow_aux:= '0';
 		if (A = positive_Inf or A = negative_Inf) then--A is Inf, must check B
 			if (B = positive_Inf or B = negative_Inf) then
 				if (A_fp.sign = B_fp.sign) then-- (+Inf + +Inf) or (-Inf + -Inf)
+					res_sign := A_fp.sign;
 					result <= A;
 				else--Inf - Inf = NaN
+					res_sign := '1';
 					result <= NaN;
 				end if;
 			else--B is not Inf
+				res_sign := A_fp.sign;
 				result <= A;
 			end if;
 		else--therefore, only B is Inf
+			res_sign := B_fp.sign;
 			result <= B;
 		end if;
-	else
+	else--end of pre-adder, handle normal cases
 		if (A_fp.sign xor B_fp.sign)='0' then--same sign
 			res_sign := A_fp.sign;
 			if(A_fp.exponent > B_fp.exponent) then-- |A| > |B|
@@ -95,13 +110,13 @@ process(A,B,A_fp,B_fp)
 				res_exp_aux := '0' & B_fp.exponent;
 			end if;
 			res_expanded_mantissa := ('0'& A_expanded_mantissa) + ('0' & B_expanded_mantissa);
-			if(res_expanded_mantissa(24)='1')then--normalizacao
+			if(res_expanded_mantissa(24)='1')then--1o passo da normalizacao: garantir bit 24 = 0
 				res_exp_aux := res_exp_aux + 1;
-				res_mantissa := res_expanded_mantissa (23 downto 1);
+				res_expanded_mantissa := '0' & res_expanded_mantissa (24 downto 1);
 			else
-				res_mantissa := res_expanded_mantissa(22 downto 0);
+				res_expanded_mantissa := res_expanded_mantissa;
 			end if;
-			result <= res_sign & res_exp_aux(7 downto 0) & res_mantissa;
+--			result <= res_sign & res_exp_aux(7 downto 0) & res_mantissa;
 			
 		else --different signs
 		
@@ -120,14 +135,16 @@ process(A,B,A_fp,B_fp)
 				A_expanded_mantissa := std_logic_vector(shifted_A_expanded_mantissa);--shiftar mantissas até exponentes serem iguais
 				res_expanded_mantissa := ('0' & B_expanded_mantissa) - ('0' & A_expanded_mantissa);
 			end if;
-			
-			count := 23;--used in normalization, points to possible msb
+		
+		end if;
+		
+			count := 23;--used in normalization, points to possible msb, 
 			while ((res_expanded_mantissa(23)='0') and (count>=0)) loop--normalization
 				res_exp_aux := res_exp_aux - 1;--pode ficar menor que 0
 				count := count - 1;
 				res_expanded_mantissa := res_expanded_mantissa (23 downto 0) & '0';--sll
 			end loop;
-			if(count>=0 and res_exp_aux > 0)then--normalization succeeded
+			if(res_expanded_mantissa(23)='1')then--normalization succeeded: there is '1' in bit 23
 				res_mantissa := res_expanded_mantissa (22 downto 0);
 			else--result is zero (0x00000000)
 				res_mantissa := (others=>'0');
@@ -135,20 +152,31 @@ process(A,B,A_fp,B_fp)
 			end if;
 			result <= res_sign & res_exp_aux(7 downto 0) & res_mantissa;
 
-			--overflow/underflow detection. See ovflw_undflw.txt for explanation
-			overflow_aux := res_exp_aux(8) and (not res_exp_aux(7));
-			underflow_aux := res_exp_aux(8) and  res_exp_aux(7);
-			overflow <= overflow_aux;
-			underflow<= underflow_aux;			
-			--overflow/underflow handling
-			if(overflow_aux='1') then--result is set to +/-Inf
-				result <= res_sign & positive_Inf(30 downto 0);
-			elsif (underflow_aux='1') then--result is set to +/-0
-				result <= res_sign & positive_zero(30 downto 0);
+			-- overflow/underflow detection. See ovflw_undflw.txt for explanation
+			--	overflow_aux := res_exp_aux(8) and (not res_exp_aux(7));
+			--	underflow_aux := res_exp_aux(8) and res_exp_aux(7);
+			if ((res_exp_aux(8 downto 7) = "10") or (res_exp_aux(7 downto 0) = "11111111")) then
+				overflow_aux := '1';
+			else
+				overflow_aux := '0';
 			end if;
-		
-		end if;
-	end if;	
+			
+			if (res_exp_aux(8 downto 7) = "11") then
+				underflow_aux := '1';
+			else
+				underflow_aux := '0';
+			end if;
+			
+	end if;
+
+	overflow <= overflow_aux;
+	underflow<= underflow_aux;			
+	--overflow/underflow handling
+	if(overflow_aux='1') then--result is set to +/-Inf
+		result <= res_sign & positive_Inf(30 downto 0);
+	elsif (underflow_aux='1') then--result is set to +/-0
+		result <= res_sign & positive_zero(30 downto 0);
+	end if;
 
 end process;
 
