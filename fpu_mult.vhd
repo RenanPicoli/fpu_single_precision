@@ -61,16 +61,20 @@ process(A,B,A_fp,B_fp,P)
 	variable res_exp_aux: std_logic_vector(8 downto 0);--1 additional bit for overflow/underflow detection
 	variable overflow_aux: std_logic;--auxiliary variable
 	variable underflow_aux: std_logic;--auxiliary variable
-	variable res_sign: std_logic;	
+--	variable res_sign: std_logic;	
 	
 	begin
 	
 	-- pre-multiplier
 	if ((A_fp.exponent = x"FF" and A_fp.mantissa > 0) or
 		(B_fp.exponent = x"FF" and B_fp.mantissa > 0)) then--check for NaN
-			result <= NaN;	
+			result <= NaN;
+			overflow_aux := '0';
+			underflow_aux:= '0';
 	elsif ((A = positive_Inf or A = negative_Inf) or
 			(B = positive_Inf or B = negative_Inf)) then--check for Inf
+		overflow_aux := '0';
+		underflow_aux:= '0';
 		if (A = positive_Inf or A = negative_Inf) then--A is Inf, must check B
 			if (B = positive_Inf or B = negative_Inf) then--A and B are Inf
 				if (A_fp.sign = B_fp.sign) then-- (+Inf * +Inf) or (-Inf * -Inf)
@@ -94,9 +98,11 @@ process(A,B,A_fp,B_fp,P)
 		end if;
 	elsif ((A = positive_zero or A = negative_zero) or
 	(B = positive_zero or B = negative_zero)) then-- check for zero
+		overflow_aux := '0';
+		underflow_aux:= '0';
 		result <= (A_fp.sign xor B_fp.sign) & positive_zero(30 downto 0);
 	else
-		res_sign := A_fp.sign xor B_fp.sign;
+--		res_sign := A_fp.sign xor B_fp.sign;
 		
 		res_exp_aux := ('0' & A_fp.exponent) + ('0' & B_fp.exponent) - EXP_BIAS;
 		--normalization: only 2 cases: exp=A_exp+B_exp or exp=A_exp+B_exp+1
@@ -108,19 +114,33 @@ process(A,B,A_fp,B_fp,P)
 			res_mantissa := P(45 downto 23);--P(46) must be '1' if P(47)='0'
 		end if;
 		
-		result <= res_sign & res_exp_aux(7 downto 0) & res_mantissa;
+		result <= (A_fp.sign xor B_fp.sign) & res_exp_aux(7 downto 0) & res_mantissa;
 		
 		--overflow/underflow detection. See ovflw_undflw.txt for explanation
-		overflow_aux := res_exp_aux(8) and (not res_exp_aux(7));
-		underflow_aux := res_exp_aux(8) and  res_exp_aux(7);
-		overflow <= overflow_aux;
-		underflow<= underflow_aux;
-		--overflow/underflow handling
-		if(overflow_aux='1') then--result is set to +/-Inf
-			result <= (A_fp.sign xor B_fp.sign) & positive_Inf(30 downto 0);
-		elsif (underflow_aux='1') then--result is set to +/-0
-			result <= (A_fp.sign xor B_fp.sign) & positive_zero(30 downto 0);
+--		overflow_aux := res_exp_aux(8) and (not res_exp_aux(7));
+--		underflow_aux := res_exp_aux(8) and  res_exp_aux(7);
+		if ((res_exp_aux(8 downto 7) = "10") or (res_exp_aux(7 downto 0) = "11111111")) then
+			overflow_aux := '1';
+		else
+			overflow_aux := '0';
 		end if;
+		
+		if (res_exp_aux(8 downto 7) = "11") then
+			underflow_aux := '1';
+		else
+			underflow_aux := '0';
+		end if;
+
 	end if;
+	
+	overflow <= overflow_aux;
+	underflow<= underflow_aux;
+	--overflow/underflow handling
+	if(overflow_aux='1') then--result is set to +/-Inf
+		result <= (A_fp.sign xor B_fp.sign) & positive_Inf(30 downto 0);
+	elsif (underflow_aux='1') then--result is set to +/-0
+		result <= (A_fp.sign xor B_fp.sign) & positive_zero(30 downto 0);
+	end if;
+
 end process;
 end bhv;
