@@ -68,7 +68,7 @@ process(A,B,A_fp,B_fp,res_expanded_mantissa)
 	variable shifted_A_expanded_mantissa: unsigned(23 downto 0);
 	variable shifted_B_expanded_mantissa: unsigned(23 downto 0);
 	variable res_mantissa: std_logic_vector(22 downto 0);
-	variable res_sign: std_logic;	
+--	variable res_sign: std_logic;	
 	variable res_exp_aux: std_logic_vector(8 downto 0);--1 additional bit for overflow/underflow detection
 	variable overflow_aux: std_logic;--auxiliary variable
 	variable underflow_aux: std_logic;--auxiliary variable
@@ -81,20 +81,32 @@ process(A,B,A_fp,B_fp,res_expanded_mantissa)
 	-- pre-multiplier: trivial cases
 	if ((A_fp.exponent = x"FF" and A_fp.mantissa > 0) or
 		(B_fp.exponent = x"FF" and B_fp.mantissa > 0)) then--check for NaN
-			result <= NaN;	
+			result <= NaN;
+			overflow_aux := '0';
+			underflow_aux:= '0';
 	elsif (((A = positive_Inf or A = negative_Inf) and
 			(B = positive_Inf or B = negative_Inf)) or
 			((A = positive_zero or A = negative_zero) and
 			(B = positive_zero or B = negative_zero))) then--check for Inf/Inf or 0/0
 			result <= NaN;
+			overflow_aux := '0';
+			underflow_aux:= '0';
 	elsif (A = positive_Inf or A = negative_Inf) then-- checking for Inf/0 or Inf/normal, Inf/Inf was already checked
 		result <= (A_fp.sign xor B_fp.sign) & positive_Inf(30 downto 0);
+		overflow_aux := '0';
+		underflow_aux:= '0';
 	elsif (B = positive_Inf or B = negative_Inf) then-- checking for 0/Inf or normal/Inf, Inf/Inf was already checked
 		result <= (A_fp.sign xor B_fp.sign) & positive_zero(30 downto 0);
+		overflow_aux := '0';
+		underflow_aux:= '0';
 	elsif (A = positive_zero or A = negative_zero) then-- checking for 0/normal, 0/0 and 0/Inf cases were already checked
 		result <= (A_fp.sign xor B_fp.sign) & positive_zero(30 downto 0);
+		overflow_aux := '0';
+		underflow_aux:= '0';
 	elsif (B = positive_zero or B = negative_zero) then-- checking for normal/0, 0/0 and Inf/0 cases were already checked
 		result <= (A_fp.sign xor B_fp.sign) & positive_Inf(30 downto 0);
+		overflow_aux := '0';
+		underflow_aux:= '0';
 
 	-- division: normal case
 	else
@@ -106,17 +118,30 @@ process(A,B,A_fp,B_fp,res_expanded_mantissa)
 			result <= (A_fp.sign xor B_fp.sign) & res_exp_aux(7 downto 0) & res_expanded_mantissa(21 downto 0) & '0';
 		end if;
 
-		--overflow/underflow detection. See ovflw_undflw.txt for explanation
-		overflow_aux := res_exp_aux(8) and (not res_exp_aux(7));
-		underflow_aux := res_exp_aux(8) and  res_exp_aux(7);
-		overflow <= overflow_aux;
-		underflow<= underflow_aux;
-		--overflow/underflow handling
-		if(overflow_aux='1') then--result is set to +/-Inf
-			result <= (A_fp.sign xor B_fp.sign) & positive_Inf(30 downto 0);
-		elsif (underflow_aux='1') then--result is set to +/-0
-			result <= (A_fp.sign xor B_fp.sign) & positive_zero(30 downto 0);
+		-- overflow/underflow detection. See ovflw_undflw.txt for explanation
+		--	overflow_aux := res_exp_aux(8) and (not res_exp_aux(7));
+		--	underflow_aux := res_exp_aux(8) and res_exp_aux(7);
+		if ((res_exp_aux(8 downto 7) = "10") or (res_exp_aux(7 downto 0) = "11111111")) then
+			overflow_aux := '1';
+		else
+			overflow_aux := '0';
 		end if;
+		
+		if (res_exp_aux(8 downto 7) = "11") then
+			underflow_aux := '1';
+		else
+			underflow_aux := '0';
+		end if;
+
+	end if;
+	
+	overflow <= overflow_aux;
+	underflow<= underflow_aux;			
+	--overflow/underflow handling
+	if(overflow_aux='1') then--result is set to +/-Inf
+		result <= (A_fp.sign xor B_fp.sign) & positive_Inf(30 downto 0);
+	elsif (underflow_aux='1') then--result is set to +/-0
+		result <= (A_fp.sign xor B_fp.sign) & positive_zero(30 downto 0);
 	end if;
 	
 	--division by zero
