@@ -58,8 +58,6 @@ process(A,B,A_fp,B_fp)
 	B_expanded_mantissa := '1' & B_fp.mantissa;
 	shifted_A_expanded_mantissa := (others =>'0');--initial value
 	shifted_B_expanded_mantissa := (others =>'0');--initial value
---	shifted_A_expanded_mantissa := A_expanded_mantissa & (-1+255 downto 0 =>'0');--initial value
---	shifted_B_expanded_mantissa := B_expanded_mantissa & (-1+255 downto 0 =>'0');--initial value
 	
 	-- PRE-ADDER
 	-- check for zero
