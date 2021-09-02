@@ -58,8 +58,6 @@ process(A,B,A_fp,B_fp)
 	B_expanded_mantissa := '1' & B_fp.mantissa;
 	shifted_A_expanded_mantissa := (others =>'0');--initial value
 	shifted_B_expanded_mantissa := (others =>'0');--initial value
---	shifted_A_expanded_mantissa := A_expanded_mantissa & (-1+255 downto 0 =>'0');--initial value
---	shifted_B_expanded_mantissa := B_expanded_mantissa & (-1+255 downto 0 =>'0');--initial value
 	
 	-- PRE-ADDER
 	-- check for zero
@@ -110,20 +108,12 @@ process(A,B,A_fp,B_fp)
 			if(A_fp.exponent > B_fp.exponent) then-- |A| > |B|
 				--B needs to be shifted
 				shifted_A_expanded_mantissa := A_expanded_mantissa & (-1+255 downto 0 =>'0');
-				for i in 0 to 23+255 loop
-					if (i = 255-(A_fp.exponent-B_fp.exponent)) then -- bit 0 is shifted to minus the difference of exponents (+255 because std_logic_vector index is natural)
-						shifted_B_expanded_mantissa(i+23 downto i) := B_expanded_mantissa;
-					end if;
-				end loop;
+				shifted_B_expanded_mantissa(255-to_integer(unsigned(A_fp.exponent-B_fp.exponent))+23 downto 255-to_integer(unsigned(A_fp.exponent-B_fp.exponent))) := B_expanded_mantissa;
 				res_exp_aux := '0' & A_fp.exponent;
 			else-- |A| =< |B|
 				--A needs to be shifted
 				shifted_B_expanded_mantissa := B_expanded_mantissa & (-1+255 downto 0 =>'0');
-				for i in 0 to 23+255 loop
-					if (i = 255-(B_fp.exponent-A_fp.exponent)) then -- bit 0 is shifted to minus the difference of exponents (+255 because std_logic_vector index is natural)
-						shifted_A_expanded_mantissa(i+23 downto i) := A_expanded_mantissa;
-					end if;
-				end loop;
+				shifted_A_expanded_mantissa(255-to_integer(unsigned(B_fp.exponent-A_fp.exponent))+23 downto 255-to_integer(unsigned(B_fp.exponent-A_fp.exponent))) := A_expanded_mantissa;
 				res_exp_aux := '0' & B_fp.exponent;
 			end if;
 			res_expanded_mantissa := ('0'& shifted_A_expanded_mantissa) + ('0' & shifted_B_expanded_mantissa);
@@ -140,21 +130,13 @@ process(A,B,A_fp,B_fp)
 				res_sign := A_fp.sign;
 				res_exp_aux  := '0' & A_fp.exponent;
 				shifted_A_expanded_mantissa := A_expanded_mantissa & (-1+255 downto 0 =>'0');
-				for i in 0 to 23+255 loop
-					if (i = 255-(A_fp.exponent-B_fp.exponent)) then -- bit 0 is shifted to minus the difference of exponents (+255 because std_logic_vector index is natural)
-						shifted_B_expanded_mantissa(i+23 downto i) := B_expanded_mantissa;
-					end if;
-				end loop;
+				shifted_B_expanded_mantissa(255-to_integer(unsigned(A_fp.exponent-B_fp.exponent))+23 downto 255-to_integer(unsigned(A_fp.exponent-B_fp.exponent))) := B_expanded_mantissa;
 				res_expanded_mantissa := ('0'& shifted_A_expanded_mantissa) - ('0' & shifted_B_expanded_mantissa);
 			else-- |A| <= |B|
 				res_sign := B_fp.sign;
 				res_exp_aux  := '0' & B_fp.exponent;
 				shifted_B_expanded_mantissa := B_expanded_mantissa & (-1+255 downto 0 =>'0');
-				for i in 0 to 23+255 loop
-					if (i = 255-(B_fp.exponent-A_fp.exponent)) then -- bit 0 is shifted to minus the difference of exponents (+255 because std_logic_vector index is natural)
-						shifted_A_expanded_mantissa(i+23 downto i) := A_expanded_mantissa;
-					end if;
-				end loop;
+				shifted_A_expanded_mantissa(255-to_integer(unsigned(B_fp.exponent-A_fp.exponent))+23 downto 255-to_integer(unsigned(B_fp.exponent-A_fp.exponent))) := A_expanded_mantissa;
 				res_expanded_mantissa := ('0'& shifted_B_expanded_mantissa) - ('0' & shifted_A_expanded_mantissa);
 			end if;
 		
