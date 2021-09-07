@@ -40,12 +40,9 @@ B_fp <= (B(31),B(30 downto 23),B(22 downto 0));
 process(A,B,A_fp,B_fp)
 	variable A_expanded_mantissa: std_logic_vector(23 downto 0);
 	variable B_expanded_mantissa: std_logic_vector(23 downto 0);
-	
-	--std_logic_vector indexes are NATURAL, so I can't do 23 downto -255, which would be easier for me
-	variable shifted_A_expanded_mantissa: std_logic_vector(23+255 downto 0);-- +255 because bit 0 could be shifted to -255 due to exponent difference
-	variable shifted_B_expanded_mantissa: std_logic_vector(23+255 downto 0);-- +255 because bit 0 could be shifted to -255 due to exponent difference
-	variable res_expanded_mantissa: std_logic_vector(24+255 downto 0);-- +255 because it is the sum (or difference) of shifted_A_expanded_mantissa and shifted_B_expanded_mantissa
-
+	variable shifted_A_expanded_mantissa: unsigned(23 downto 0);
+	variable shifted_B_expanded_mantissa: unsigned(23 downto 0);
+	variable res_expanded_mantissa: std_logic_vector(24 downto 0);
 	variable res_mantissa: std_logic_vector(22 downto 0);
 	variable res_sign: std_logic;
 	variable count: integer;
@@ -56,13 +53,12 @@ process(A,B,A_fp,B_fp)
 	begin
 	A_expanded_mantissa := '1' & A_fp.mantissa;
 	B_expanded_mantissa := '1' & B_fp.mantissa;
-	shifted_A_expanded_mantissa := (others =>'0');--initial value
-	shifted_B_expanded_mantissa := (others =>'0');--initial value
+	shifted_A_expanded_mantissa := unsigned(A_expanded_mantissa);--initial value
+	shifted_B_expanded_mantissa := unsigned(B_expanded_mantissa);--initial value
 	
-	-- PRE-ADDER
-	-- check for zero
+	-- pre-adder
 	if ((A = positive_zero or A = negative_zero) or
-	(B = positive_zero or B = negative_zero)) then
+	(B = positive_zero or B = negative_zero)) then-- check for zero
 		overflow_aux := '0';
 		underflow_aux:= '0';
 		if (A = positive_zero or A = negative_zero) then
@@ -72,16 +68,14 @@ process(A,B,A_fp,B_fp)
 			res_sign := A_fp.sign;
 			result <= A;
 		end if;
-	--check for NaN
 	elsif ((A_fp.exponent = x"FF" and A_fp.mantissa > 0) or
-	(B_fp.exponent = x"FF" and B_fp.mantissa > 0)) then
+	(B_fp.exponent = x"FF" and B_fp.mantissa > 0)) then--check for NaN
 		res_sign := '1';
 		result <= NaN;
 		overflow_aux := '0';
 		underflow_aux:= '0';
-	--check for Inf
 	elsif ((A = positive_Inf or A = negative_Inf) or
-	(B = positive_Inf or B = negative_Inf)) then
+	(B = positive_Inf or B = negative_Inf)) then--check for Inf
 		overflow_aux := '0';
 		underflow_aux:= '0';
 		if (A = positive_Inf or A = negative_Inf) then--A is Inf, must check B
@@ -101,55 +95,57 @@ process(A,B,A_fp,B_fp)
 			res_sign := B_fp.sign;
 			result <= B;
 		end if;
-	--END OF PRE-ADDER, HANDLE NORMAL CASES
-	else
+	else--end of pre-adder, handle normal cases
 		if (A_fp.sign xor B_fp.sign)='0' then--same sign
 			res_sign := A_fp.sign;
 			if(A_fp.exponent > B_fp.exponent) then-- |A| > |B|
 				--B needs to be shifted
-				shifted_A_expanded_mantissa := A_expanded_mantissa & (-1+255 downto 0 =>'0');
-				shifted_B_expanded_mantissa(255-to_integer(unsigned(A_fp.exponent-B_fp.exponent))+23 downto 255-to_integer(unsigned(A_fp.exponent-B_fp.exponent))) := B_expanded_mantissa;
+				shifted_B_expanded_mantissa := shift_right(unsigned(B_expanded_mantissa),to_integer(unsigned(A_fp.exponent-B_fp.exponent)));
+				B_expanded_mantissa := std_logic_vector(shifted_B_expanded_mantissa);--shiftar mantissas até exponentes serem iguais
 				res_exp_aux := '0' & A_fp.exponent;
 			else-- |A| =< |B|
-				--A needs to be shifted
-				shifted_B_expanded_mantissa := B_expanded_mantissa & (-1+255 downto 0 =>'0');
-				shifted_A_expanded_mantissa(255-to_integer(unsigned(B_fp.exponent-A_fp.exponent))+23 downto 255-to_integer(unsigned(B_fp.exponent-A_fp.exponent))) := A_expanded_mantissa;
+				--A needs to be expanded
+				shifted_A_expanded_mantissa := shift_right(unsigned(A_expanded_mantissa),to_integer(unsigned(B_fp.exponent-A_fp.exponent)));
+				A_expanded_mantissa := std_logic_vector(shifted_A_expanded_mantissa);--shiftar mantissas até exponentes serem iguais
 				res_exp_aux := '0' & B_fp.exponent;
 			end if;
-			res_expanded_mantissa := ('0'& shifted_A_expanded_mantissa) + ('0' & shifted_B_expanded_mantissa);
-			if(res_expanded_mantissa(24+255)='1')then--1o passo da normalizacao: garantir bit 24 = 0 (+255 because std_logic_vector index is natural)
+			res_expanded_mantissa := ('0'& A_expanded_mantissa) + ('0' & B_expanded_mantissa);
+			if(res_expanded_mantissa(24)='1')then--1o passo da normalizacao: garantir bit 24 = 0
 				res_exp_aux := res_exp_aux + 1;
-				res_expanded_mantissa := '0' & res_expanded_mantissa (24+255 downto 1);--sll
+				res_expanded_mantissa := '0' & res_expanded_mantissa (24 downto 1);
 			else
 				res_expanded_mantissa := res_expanded_mantissa;
 			end if;
+--			result <= res_sign & res_exp_aux(7 downto 0) & res_mantissa;
 			
 		else --different signs
 		
 			if((A_fp.exponent > B_fp.exponent) or ((A_fp.exponent=B_fp.exponent)and(A_expanded_mantissa > B_expanded_mantissa))) then--this ensures |A| > |B|
 				res_sign := A_fp.sign;
 				res_exp_aux  := '0' & A_fp.exponent;
-				shifted_A_expanded_mantissa := A_expanded_mantissa & (-1+255 downto 0 =>'0');
-				shifted_B_expanded_mantissa(255-to_integer(unsigned(A_fp.exponent-B_fp.exponent))+23 downto 255-to_integer(unsigned(A_fp.exponent-B_fp.exponent))) := B_expanded_mantissa;
-				res_expanded_mantissa := ('0'& shifted_A_expanded_mantissa) - ('0' & shifted_B_expanded_mantissa);
+
+				shifted_B_expanded_mantissa := shift_right(unsigned(B_expanded_mantissa),to_integer(unsigned(A_fp.exponent-B_fp.exponent)));
+				B_expanded_mantissa := std_logic_vector(shifted_B_expanded_mantissa);--shiftar mantissas até exponentes serem iguais
+				res_expanded_mantissa := ('0' & A_expanded_mantissa) - ('0' & B_expanded_mantissa);
 			else-- |A| <= |B|
 				res_sign := B_fp.sign;
 				res_exp_aux  := '0' & B_fp.exponent;
-				shifted_B_expanded_mantissa := B_expanded_mantissa & (-1+255 downto 0 =>'0');
-				shifted_A_expanded_mantissa(255-to_integer(unsigned(B_fp.exponent-A_fp.exponent))+23 downto 255-to_integer(unsigned(B_fp.exponent-A_fp.exponent))) := A_expanded_mantissa;
-				res_expanded_mantissa := ('0'& shifted_B_expanded_mantissa) - ('0' & shifted_A_expanded_mantissa);
+				
+				shifted_A_expanded_mantissa := shift_right(unsigned(A_expanded_mantissa),to_integer(unsigned(B_fp.exponent-A_fp.exponent)));
+				A_expanded_mantissa := std_logic_vector(shifted_A_expanded_mantissa);--shiftar mantissas até exponentes serem iguais
+				res_expanded_mantissa := ('0' & B_expanded_mantissa) - ('0' & A_expanded_mantissa);
 			end if;
 		
 		end if;
 		
-			count := 23+255;--used in normalization, points to possible msb, 
-			while ((res_expanded_mantissa(23+255)='0') and (count>=0)) loop--normalization
+			count := 23;--used in normalization, points to possible msb, 
+			while ((res_expanded_mantissa(23)='0') and (count>=0)) loop--normalization
 				res_exp_aux := res_exp_aux - 1;--pode ficar menor que 0
 				count := count - 1;
-				res_expanded_mantissa := res_expanded_mantissa (23+255 downto 0) & '0';--sll
+				res_expanded_mantissa := res_expanded_mantissa (23 downto 0) & '0';--sll
 			end loop;
-			if(res_expanded_mantissa(23+255)='1')then--normalization succeeded: there is '1' in bit 23
-				res_mantissa := res_expanded_mantissa (22+255 downto 0+255);
+			if(res_expanded_mantissa(23)='1')then--normalization succeeded: there is '1' in bit 23
+				res_mantissa := res_expanded_mantissa (22 downto 0);
 			else--result is zero (0x00000000)
 				res_mantissa := (others=>'0');
 				res_exp_aux := (others=>'0');
