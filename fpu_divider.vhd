@@ -38,7 +38,8 @@ signal A_inter: A_matrix;--dividendos intermediários
 signal C: std_logic_vector(0 to 23);--resultado das comparações
 type R_matrix is array (0 to 23) of std_logic_vector(24 downto 0);--a rigor, só precisa de 23 bit pq é o tamanho de B_expanded_mantissa
 signal R: R_matrix;--restos intermediários
-
+type D_matrix is array (0 to 23) of std_logic_vector(24 downto 0);--a rigor, só precisa de 23 bit pq é o tamanho de B_expanded_mantissa
+signal D: D_matrix;--resultados de diferenças
 begin
 
 	A_expanded_mantissa <= '1' & A_fp.mantissa;
@@ -49,17 +50,19 @@ begin
 
 --signal assignments
  lines: for n in 1 to 23 generate
-	C(n) <= '1' when (A_inter(n) >= '0' & B_expanded_mantissa)
+	D(n) <= A_inter(n) - ('0' & B_expanded_mantissa);
+	C(n) <= '1' when D(n)(24)='0'-- A_inter(n) >= '0' & B_expanded_mantissa
 				else '0';
 	
-	R(n)	<= (A_inter(n-1) - ('0' & B_expanded_mantissa)) when (C(n-1) = '1')
+	R(n)	<= D(n-1) when (C(n-1) = '1')
 				else A_inter(n-1);
 					
 	A_inter(n)	<= R(n)(23 downto 0) & '0';--multiplica o resto intermediário por 2
 
  end generate lines;
  --caso básico
- C(0) <= '1' when (A_expanded_mantissa >= B_expanded_mantissa)
+ D(0) <= ('0' & A_expanded_mantissa) - ('0' & B_expanded_mantissa);
+ C(0) <= '1' when D(0)(24)='0' -- this means A_expanded_mantissa >= B_expanded_mantissa
 			else '0';
  A_inter(0) <= '0' & A_expanded_mantissa;
  res_expanded_mantissa <= C;--C(0) might be '0', needs normalization below
