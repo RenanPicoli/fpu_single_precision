@@ -3,4 +3,5 @@
 db/
 incremental_db/
 simulation/
-output_files/
+output_files
+processor_demo_components/
