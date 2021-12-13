@@ -1,5 +1,6 @@
 library ieee;
 use ieee.std_logic_1164.all;
+use ieee.std_logic_unsigned.all;
 use ieee.numeric_std.all;
 use ieee.math_real.all;--for floor(), ceil()
 use work.all;
@@ -17,17 +18,22 @@ architecture test of testbench is
 component generic_coeffs_mem
 	-- 0..P: índices dos coeficientes de x (b)
 	-- 1..Q: índices dos coeficientes de y (a)
-	generic	(N: natural; P: natural; Q: natural);
-	port(	D:	in std_logic_vector(31 downto 0);-- um coeficiente é carregado por vez
+	generic	(N: natural; P: natural; Q: natural);--N address width in bits
+	port(	D:	in std_logic_vector(31 downto 0);-- um coeficiente é atualizado por vez
 			ADDR: in std_logic_vector(N-1 downto 0);--se ALTERAR P, Q PRECISA ALTERAR AQUI
 			RST:	in std_logic;--asynchronous reset
 			RDEN:	in std_logic;--read enable
 			WREN:	in std_logic;--write enable
 			CLK:	in std_logic;
+			filter_CLK:	in std_logic;--to synchronize read with filter (coeffs are updated at rising_edge)
+			filter_WREN: in std_logic;--filter write enable, used to check if all_coeffs must be used
+			parallel_write_data: in array32 (0 to 2**N-1);
+			parallel_wren: in std_logic;
+			parallel_rden: in std_logic;
+			parallel_read_data: out array32 (0 to 2**N-1);--used when peripherals other than filter
 			Q_coeffs: out std_logic_vector(31 downto 0);--single coefficient reading
-			all_coeffs:	out array32((P+Q) downto 0)-- todos os coeficientes VÁLIDOS são lidos de uma vez
+			all_coeffs:	out array32((P+Q) downto 0)-- all VALID coefficients are read at once by filter through this port
 	);
-
 end component;
 
 ---------------------------------------------------
@@ -101,12 +107,18 @@ end component;
 
 component inner_product_calculation_unit
 generic	(N: natural);--N: address width in bits
-port(	D: in std_logic_vector(31 downto 0);-- input
-		ADDR: in std_logic_vector(N-1 downto 0);-- input
-		CLK: in std_logic;-- input
-		RST: in std_logic;-- input
-		WREN: in std_logic;-- input
-		RDEN: in std_logic;-- input
+port(	D: in std_logic_vector(31 downto 0);
+		ADDR: in std_logic_vector(N-1 downto 0);
+		CLK: in std_logic;
+		RST: in std_logic;
+		WREN: in std_logic;
+		RDEN: in std_logic;
+		parallel_write_data: in array32 (0 to 2**(N-2)-1);
+		parallel_wren_A: in std_logic;
+		parallel_wren_B: in std_logic;
+		parallel_rden_A: in std_logic;--enables parallel read (to shared data bus)
+		parallel_rden_B: in std_logic;--enables parallel read (to shared data bus)
+		parallel_read_data: out array32 (0 to 2**(N-2)-1);
 		output: out std_logic_vector(31 downto 0)-- output
 );
 end component;
@@ -122,6 +134,12 @@ port(	D: in std_logic_vector(31 downto 0);-- input
 		WREN: in std_logic;-- input
 		RDEN: in std_logic;-- input
 		VMAC_EN: in std_logic;-- input: enables accumulation
+		parallel_write_data: in array32 (0 to 2**(N-2)-1);
+		parallel_wren_A: in std_logic;
+		parallel_wren_B: in std_logic;
+		parallel_rden_A: in std_logic;--enables parallel read (to shared data bus)
+		parallel_rden_B: in std_logic;--enables parallel read (to shared data bus)
+		parallel_read_data: out array32 (0 to 2**(N-2)-1);
 		output: out std_logic_vector(31 downto 0)-- output
 );
 
@@ -167,27 +185,29 @@ signal error_flag: std_logic;-- '1' if expected_output is different from actual 
 
 signal filter_CLK: std_logic;
 signal filter_CLK_n: std_logic;--filter_CLK inverted
-signal proc_filter_wren: std_logic;
-signal filter_wren: std_logic;
+signal filter_parallel_wren: std_logic;
 signal filter_rst: std_logic := '1';
 signal filter_input: std_logic_vector(31 downto 0);
 signal filter_output: std_logic_vector(31 downto 0);
 signal filter_irq: std_logic;
 signal filter_iack: std_logic;
+signal proc_filter_parallel_wren: std_logic;
 
 signal filter_enable: std_logic;--bit 0, enables filter_CLK
 signal filter_CLK_state: std_logic := '0';--starts in zero, changes to 1 when first rising edge of filter_CLK occurs
 
 --signals for coefficients memory----------------------------
-constant P: natural := 2;
---constant P: natural := 3;
-constant Q: natural := 2;
+--constant P: natural := 2;
+constant P: natural := 3;
+--constant Q: natural := 2;
 --constant Q: natural := 0;--forces  FIR filter
---constant Q: natural := 4;
+constant Q: natural := 4;
 signal coeffs_mem_Q: std_logic_vector(31 downto 0);--signal for single coefficient reading
 signal coefficients: array32 (P+Q downto 0);
 signal coeffs_mem_wren: std_logic;
 signal coeffs_mem_rden: std_logic;
+signal coeffs_mem_parallel_rden: std_logic;
+signal coeffs_mem_parallel_wren: std_logic;
 
 -----------signals for RAM interfacing---------------------
 ---processor sees all memory-mapped I/O as part of RAM-----
@@ -197,17 +217,50 @@ signal ram_addr: std_logic_vector(N-1 downto 0);
 signal ram_rden: std_logic;
 signal ram_wren: std_logic;
 signal ram_write_data: std_logic_vector(31 downto 0);
+--signal ram_Q: std_logic_vector(31 downto 0);
+signal ram_Q_buffer_in: std_logic_vector(31 downto 0);
+signal ram_Q_buffer_out: std_logic_vector(31 downto 0);
 
 --signals for inner_product----------------------------------
 signal inner_product_result: std_logic_vector(31 downto 0);
 signal inner_product_rden: std_logic;
 signal inner_product_wren: std_logic;
+signal inner_product_parallel_rden_A: std_logic;
+signal inner_product_parallel_wren_A: std_logic;
+signal inner_product_parallel_rden_B: std_logic;
+signal inner_product_parallel_wren_B: std_logic;
 
 --signals for vmac-------------------------------------------
 signal vmac_Q: std_logic_vector(31 downto 0);
 signal vmac_rden: std_logic;
 signal vmac_wren: std_logic;--enables write on individual registers
 signal vmac_en:	std_logic;--enables accumulation
+signal vmac_parallel_rden_A: std_logic;
+signal vmac_parallel_rden_B: std_logic;
+signal vmac_parallel_wren_A: std_logic;
+signal vmac_parallel_wren_B: std_logic;
+
+--signals for vector transfers
+signal lvec: std_logic;
+signal lvec_src: std_logic_vector(2 downto 0);
+signal lvec_dst_mask: std_logic_vector(6 downto 0);
+signal vector_bus: array32 (0 to 7);--shared data bus for parallel write of 8 fp32
+
+constant fs : integer := 22050;--frequência de amostragem do filtro
+
+signal	data_out:std_logic_vector(31 downto 0);
+signal	instruction_addr:std_logic_vector(31 downto 0);
+signal	instruction_number: natural := 0;-- number of the instruction being executed
+
+constant c_WIDTH : natural := 4;
+file 		input_file: text;-- open read_mode;--estrutura representando arquivo de entrada de dados
+file 		desired_file: text;-- open read_mode;--estrutura representando arquivo de entrada de dados
+file 		output_file: text;-- open write_mode;--estrutura representando arquivo de saída de dados
+
+constant COUNT_MAX: integer := 
+integer(floor(real(real(fs)*real(TIME_DELTA/1 us)/1000000.0)/real(2.0*(1.0-real(fs)*real(TIME_DELTA/1 us)/1000000.0))));
+
+constant FILTER_CLK_SEMIPERIOD: time := 22_675_736.961 ps;--maximum precision allowed by vhdl would be fs, but constant wouldnt fit an integer
 
 begin	
 	-----------------------------------------------------------
@@ -227,7 +280,7 @@ begin
 		file_open(input_file,"input_vectors.txt",read_mode);--PRECISA FICAR NA PASTA simulation/modelsim
 		file_open(desired_file,"desired_vectors.txt",read_mode);--PRECISA FICAR NA PASTA simulation/modelsim
 		
-		wait for TIME_RST;--wait until reset finishes
+		wait for TIME_RST+2*FILTER_CLK_SEMIPERIOD;--wait until reset finishes
 --		wait until filter_CLK ='1';-- waits until the first rising edge after reset
 --		wait for (TIME_DELTA/2);-- additional delay (rising edge of sampling will be in the middle of sample)
 		wait until filter_CLK ='0';-- waits for first falling EDGE after reset
@@ -245,18 +298,18 @@ begin
 			desired <= v_B;-- assigns desired response to the algorithm
 			
 			-- IMPORTANTE: CONVERSÃO DE TEMPO PARA REAL
-			-- se TIME_DELTA em ms, use 1000 e 1 ms
-			-- se TIME_DELTA em us, use 1000000 e 1 us
-			-- se TIME_DELTA em ns, use 1000000000 e 1 ns
-			-- se TIME_DELTA em ps, use 1000000000000 e 1 ps
+			-- se FILTER_CLK_SEMIPERIOD em ms, use 1000 e 1 ms
+			-- se FILTER_CLK_SEMIPERIOD em us, use 1000000 e 1 us
+			-- se FILTER_CLK_SEMIPERIOD em ns, use 1000000000 e 1 ns
+			-- se FILTER_CLK_SEMIPERIOD em ps, use 1000000000000 e 1 ps
 			if (count = COUNT_MAX) then
 				wait until filter_CLK ='1';-- waits until the first rising edge occurs
-				wait for (TIME_DELTA/2);-- reestabelece o devido delay entre amostras e clock de amostragem
+				wait for (FILTER_CLK_SEMIPERIOD);-- reestabelece o devido delay entre amostras e clock de amostragem
 			else
 				if (count = COUNT_MAX + 1) then
 					count := 0;--variable assignment takes place immediately
 				end if;
-				wait for TIME_DELTA;-- usual delay between 2 samples
+				wait for 2*FILTER_CLK_SEMIPERIOD;-- usual delay between 2 samples
 			end if;
 			count := count + 1;--variable assignment takes place immediately
 		end loop;
@@ -321,7 +374,7 @@ begin
 		end process;
 		
 		--simulates software writing '1' to bit 0 of filter_ctrl_status register
-		filter_enable <= '0', '1' after TIME_SW_FILTER_ENABLE;-- bit 0 filter_ctrl_status_Q enables filter_CLK
+		filter_enable <= '1';
 						
 		filter_reset_process: process (filter_CLK,RST,filter_CLK_state,filter_enable,i2s_SCK_IN_PLL_LOCKED)
 		begin
@@ -337,7 +390,10 @@ begin
 				end if;
 			end if;
 		end process filter_reset_process;
+		
 	
+	coeffs_mem_parallel_rden <= '1' when (lvec='1' and lvec_src="000") else '0';
+	coeffs_mem_parallel_wren <= lvec_dst_mask(0);
 	coeffs_mem: generic_coeffs_mem generic map (N=> 3, P => P,Q => Q)
 									port map(D => ram_write_data,
 												ADDR	=> ram_addr(2 downto 0),
@@ -345,16 +401,22 @@ begin
 												RDEN	=> coeffs_mem_rden,
 												WREN	=> coeffs_mem_wren,
 												CLK	=> ram_clk,
+												filter_CLK => filter_CLK,
+												filter_WREN => filter_parallel_wren,
+												parallel_write_data => vector_bus,
+												parallel_rden => coeffs_mem_parallel_rden,
+												parallel_wren => coeffs_mem_parallel_wren,
+												parallel_read_data => vector_bus,
 												Q_coeffs => coeffs_mem_Q,
 												all_coeffs => coefficients
 												);
 
-	filter_wren <= '0', '1' after TIME_SW_FILTER_WREN;
 	filter_CLK <= CLK_fs;
+	proc_filter_parallel_wren <= lvec_dst_mask(1);
 	IIR_filter: filter 	generic map (P => P, Q => Q)
 								port map(input => filter_input,-- input
 											RST => filter_rst,--synchronous reset
-											WREN => filter_wren,--enables writing on coefficients
+											WREN => filter_parallel_wren,--enables updating all coefficients at once
 											CLK => filter_CLK,--sampling clock
 											coeffs => coefficients,-- todos os coeficientes são lidos de uma vez
 											iack => filter_iack,
@@ -364,6 +426,11 @@ begin
 	filter_input <= data_in;
 	
 	ram_clk <= not CLK;
+	
+	inner_product_parallel_rden_A <= '1' when (lvec='1' and lvec_src="011") else '0';
+	inner_product_parallel_rden_B <= '1' when (lvec='1' and lvec_src="100") else '0';
+	inner_product_parallel_wren_A <= lvec_dst_mask(3);
+	inner_product_parallel_wren_B <= lvec_dst_mask(4);
 	inner_product: inner_product_calculation_unit
 	generic map (N => 5)
 	port map(D => ram_write_data,--supposed to be normalized
@@ -372,12 +439,22 @@ begin
 				RST => rst,
 				WREN => inner_product_wren,
 				RDEN => inner_product_rden,
+				parallel_write_data => vector_bus,
+				parallel_rden_A => inner_product_parallel_rden_A,
+				parallel_wren_A => inner_product_parallel_wren_A,
+				parallel_rden_B => inner_product_parallel_rden_B,
+				parallel_wren_B => inner_product_parallel_wren_B,
+				parallel_read_data => vector_bus,
 				-------NEED ADD FLAGS (overflow, underflow, etc)
 				--overflow:		out std_logic,
 				--underflow:		out std_logic,
 				output => inner_product_result
 				);
-				
+	
+	vmac_parallel_rden_A <= '1' when (lvec='1' and lvec_src="101") else '0';
+	vmac_parallel_rden_B <= '1' when (lvec='1' and lvec_src="110") else '0';
+	vmac_parallel_wren_A <= lvec_dst_mask(5);
+	vmac_parallel_wren_B <= lvec_dst_mask(6);
 	vmac: vectorial_multiply_accumulator_unit
 	generic map (N => 5)
 	port map(D => ram_write_data,
@@ -387,6 +464,12 @@ begin
 				WREN => vmac_wren,
 				RDEN => vmac_rden,
 				VMAC_EN => vmac_en,
+				parallel_write_data => vector_bus,
+				parallel_rden_A => vmac_parallel_rden_A,
+				parallel_wren_A => vmac_parallel_wren_A,
+				parallel_rden_B => vmac_parallel_rden_B,
+				parallel_wren_B => vmac_parallel_wren_B,
+				parallel_read_data => vector_bus,
 				-------NEED ADD FLAGS (overflow, underflow, etc)
 				--overflow:		out std_logic,
 				--underflow:		out std_logic,
