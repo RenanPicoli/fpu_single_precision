@@ -15,6 +15,18 @@ end testbench;
 
 architecture test of testbench is
 
+component fpu is
+port (
+	A: in std_logic_vector(31 downto 0);--supposed to be normalized
+	B: in std_logic_vector(31 downto 0);--supposed to be normalized
+	op:in std_logic_vector(1  downto 0);--4 operations: add,subtract, multiply,divide
+	divideByZero:	out std_logic;
+	overflow:		out std_logic;
+	underflow:		out std_logic;
+	result:out std_logic_vector(31 downto 0)
+);
+end component;
+
 component generic_coeffs_mem
 	-- 0..P: índices dos coeficientes de x (b)
 	-- 1..Q: índices dos coeficientes de y (a)
@@ -145,6 +157,29 @@ port(	D: in std_logic_vector(31 downto 0);-- input
 
 end component;
 
+---------------------------------------------------
+
+component filter_xN
+-- 0..P: índices dos x
+-- P+1..P+Q: índices dos y
+generic	(N: natural; P: natural; Q: natural);--N: address width in bits (must be >= log2(P+1+Q))
+port(	D: in std_logic_vector(31 downto 0);-- not used (peripheral is read-only)
+		DX: in std_logic_vector(31 downto 0);--current filter input
+		DY: in std_logic_vector(31 downto 0);--current filter output
+		ADDR: in std_logic_vector(N-1 downto 0);-- input
+		CLK_x: in std_logic;-- must be filter clock (input sampling)
+		CLK_y: in std_logic;-- must be not filter clock (output storing)
+		RST: in std_logic;-- input
+		WREN: in std_logic;--not used (peripheral supports only read)
+		RDEN: in std_logic;-- input
+		parallel_write_data: in array32 (0 to 2**N-1);--not used
+		parallel_wren: in std_logic;--not used
+		parallel_rden: in std_logic;--enables parallel read (to shared data bus)
+		parallel_read_data: out array32 (0 to 2**N-1);
+		output: out std_logic_vector(31 downto 0)-- output
+);
+end component;
+
 
 --reset duration must be long enough to be perceived by the slowest clock (filter clock, both polarities)
 constant TIME_RST : time := 50 us;
@@ -157,8 +192,18 @@ constant TIME_SW_FILTER_ENABLE : time := 160135 ns;
 --simulates software writing '1' to bit 0 of proc_filter_wren register
 constant TIME_SW_FILTER_WREN : time := 200 us;
 
+--simulates time for a instuction to complete (@4MHz)
+constant TIME_INSTRUCTION : time := 250 ns;
+
 signal  	CLK_IN:std_logic;--50MHz
 signal	rst: std_logic;
+
+----------standalone fpu signals----------------
+signal fpu_A: std_logic_vector (31 downto 0);
+signal fpu_B: std_logic_vector (31 downto 0);
+signal fpuControl: std_logic_vector (1 downto 0);--FPU operation selector
+signal fpu_result: std_logic_vector (31 downto 0);
+signal fpu_flags: std_logic_vector(31 downto 0);--flags da FPU
 
 -------------------clocks---------------------------------
 --signal rising_CLK_occur: std_logic;--rising edge of CLK occurred after filter_CLK falling edge
@@ -239,6 +284,14 @@ signal vmac_parallel_rden_A: std_logic;
 signal vmac_parallel_rden_B: std_logic;
 signal vmac_parallel_wren_A: std_logic;
 signal vmac_parallel_wren_B: std_logic;
+
+--signals for filter_xN--------------------------------------
+signal filter_xN_CLK: std_logic;-- must be the same frequency as filter clock, but can't be the same polarity
+signal filter_xN_Q: std_logic_vector(31 downto 0) := (others=>'0');
+signal filter_xN_rden: std_logic;
+signal filter_xN_wren: std_logic;
+signal filter_xN_parallel_rden: std_logic;
+signal filter_xN_parallel_wren: std_logic;
 
 --signals for vector transfers
 signal lvec: std_logic;
@@ -336,6 +389,16 @@ begin
 			file_close(output_file);
 		end if;
 	end process;
+												
+	floating_point_unity: fpu port map (A => fpu_A,
+													B => fpu_B,
+													op=> fpuControl,
+													divideByZero => fpu_flags(0),
+													overflow	=> fpu_flags(1),
+													underflow=> fpu_flags(2),
+													result	=> fpu_result
+												);
+	fpu_flags(31 downto 3) <= (others=>'0');
 	
 ----------------------------------------------------------
 	filter_CLK_n <= not filter_CLK;
@@ -390,6 +453,17 @@ begin
 				end if;
 			end if;
 		end process filter_reset_process;
+
+	process(RST,proc_filter_parallel_wren,filter_CLK)
+	begin
+		if(RST='1')then
+			filter_parallel_wren <= '0';
+		elsif(proc_filter_parallel_wren=	'1')then
+			filter_parallel_wren <= '1';
+		elsif(rising_edge(filter_CLK))then--next rising_edge of filter means next sample, so filter_parallel_wren must be reset
+			filter_parallel_wren <= '0';
+		end if;
+	end process;
 		
 	
 	coeffs_mem_parallel_rden <= '1' when (lvec='1' and lvec_src="000") else '0';
@@ -475,6 +549,133 @@ begin
 				--underflow:		out std_logic,
 				output => vmac_Q
 	);
+	
+	-- must be the clock of filter output updating
+	filter_xN_CLK <= not filter_CLK;
+	filter_xN_parallel_rden <= '1' when (lvec='1' and lvec_src="010") else '0';
+	filter_xN_parallel_wren <= lvec_dst_mask(2);
+	xN: filter_xN
+	-- 0..P: índices dos x
+	-- P+1..P+Q: índices dos y
+	generic map (N => 3, P => P, Q => Q)--N: address width in bits (must be >= log2(P+1+Q))
+	port map (	D => ram_write_data,-- not used (peripheral supports only read)
+			DX => filter_input,--current filter input
+			DY => filter_output,--current filter output
+			ADDR => ram_addr(2 downto 0),-- input
+			CLK_x => filter_CLK,
+			CLK_y => filter_xN_CLK,-- must be the same frequency as filter clock, but can't be the same polarity
+			RST => filter_rst,
+			WREN => filter_xN_wren,--not used (peripheral supports only read)
+			RDEN => filter_xN_rden,-- input
+			parallel_write_data => vector_bus,
+			parallel_rden => filter_xN_parallel_rden,
+			parallel_wren => filter_xN_parallel_wren,
+			parallel_read_data => vector_bus,
+			output => filter_xN_Q-- output
+			);
+			
+	--emulates processor instructions being executed
+	uproc: process
+		variable r1: std_logic_vector(31 downto 0) := (others => '0');
+		constant r2: std_logic_vector(31 downto 0) := x"3851B717";-- 5E-5
+		variable r5: std_logic_vector(31 downto 0) := (others => '0');
+		variable r6: std_logic_vector(31 downto 0) := x"7FFFFFFF";
+		variable r8: std_logic_vector(31 downto 0) := (others => '0');
+		variable r9: std_logic_vector(31 downto 0) := (others => '0');
+		variable r10: std_logic_vector(31 downto 0) := (others => '0');
+	begin
+		if (rst='1')then
+			lvec  <= '0';
+			lvec_src <= (others=>'0');
+			lvec_dst_mask <= (others=>'0');
+			fpu_A <= (others=>'0');
+			fpu_B <= (others=>'0');
+			fpuControl <= "00";
+			vmac_en <= '0';
+		else
+			--new sample arrived (filter IRQ ='1')
+			wait until rising_edge(filter_CLK) and filter_rst='0';
+			lvec  <= '1';
+			lvec_src <= "010";--filter_xN is source
+			lvec_dst_mask <= "1011000";--destinations are inner_product (A, B) and vmac:B
+			wait for TIME_INSTRUCTION;
+			--VHDL 2008 specific feature: inspecting internal values
+			r1 := <<signal inner_product.result : std_logic_vector(31 downto 0) >>;--squared norm
+			lvec  <= '0';
+			lvec_src <= (others=>'0');
+			lvec_dst_mask <= (others=>'0');
+			wait for TIME_INSTRUCTION;
+			fpu_A <= r1;
+			fpu_B <= r2;
+			fpuControl <= "01";-- subtraction
+			wait for TIME_INSTRUCTION/2;
+			r5 := fpu_result; -- r5 := r1-r2
+			r6 := x"3F800000";-- 1.0
+			wait for TIME_INSTRUCTION/2;
+			if r5(31) = '1' then -- testa quem é maior: cte ou squared norm, pega a MAIOR
+				-- fdiv r6 r2 r1; r1 <- 1/(5E-5), r1*erro será o escalar na atualização do filtro
+				fpu_A <= r6;
+				fpu_B <= r2;
+				fpuControl <= "11";--division
+			else
+				-- fdiv r6 r1 r1; r1 <- 1/(sq norm), r1*erro será o escalar na atualização do filtro
+				fpu_A <= r6;
+				fpu_B <= r1;
+				fpuControl <= "11";--division
+			end if;
+			wait for TIME_INSTRUCTION/2;
+			r1 := fpu_result;
+			wait for TIME_INSTRUCTION/2;
+			--new instruction
+			r8 := <<signal IIR_filter.output : std_logic_vector(31 downto 0) >>;--resposta do filtro
+			r9 := desired;
+			wait for TIME_INSTRUCTION;
+			-- fsub r9 r8 r10; Calcula e armazena o erro (d-y) em r10
+			fpu_A <= r9;
+			fpu_B <= r8;
+			fpuControl <= "01";-- subtraction
+			wait for TIME_INSTRUCTION/2;
+			r10 := fpu_result;
+			wait for TIME_INSTRUCTION/2;
+			-- fmul r1 r10 r1 ; r1 <- (2*step)*erro		
+			fpu_A <= r1;
+			fpu_B <= r10;
+			fpuControl <= "10";--multiplication
+			wait for TIME_INSTRUCTION/2;
+			r1 := fpu_result;
+			wait for TIME_INSTRUCTION/2;
+			-- sw [r4 + 64] r1; armazena 2*step*erro no lambda
+			-- VHDL 2008 allows injection
+			<<signal vmac.lambda_out : std_logic_vector(31 downto 0) >> <= force r1;
+			wait for TIME_INSTRUCTION;
+			--	Carrega VMAC:A(5) com as componentes do filtro atual(0)
+			-- lvec x"00" x"20";
+			lvec  <= '1';
+			lvec_src <= "000";--coeffs_mem is the source
+			lvec_dst_mask <= "0100000";--destination is vmac:A
+			wait for TIME_INSTRUCTION;
+			--vmac; enables accumulation
+			lvec  <= '0';
+			vmac_en <= '1';
+			wait for TIME_INSTRUCTION;		
+			vmac_en <= '0';
+			--	Lê o acumulador do VMAC(5) e atualiza os coeficientes do filtro(0)
+			-- lvec x"05" x"01";
+			lvec  <= '1';
+			lvec_src <= "101";--vmac:A is the source
+			lvec_dst_mask <= "0000001";--destination is coeffs_mem
+			wait for TIME_INSTRUCTION;
+			--	Lê memória de coeficientes do filtro(0) para o filtro(1)
+			-- enables filter to update its components (when filter_CLK rises)
+			-- lvec x"00" x"02";		
+			lvec  <= '1';
+			lvec_src <= "000";--coeffs_mem is the source
+			lvec_dst_mask <= "0000010";--destination is IIR_filter
+			wait for TIME_INSTRUCTION;
+			lvec <= '0';
+	--		wait;
+	end if;
+	end process;
 	
 	clock: process--50MHz input clock
 	begin
