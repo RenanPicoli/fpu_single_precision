@@ -308,7 +308,7 @@ signal	instruction_number: natural := 0;-- number of the instruction being execu
 constant c_WIDTH : natural := 4;
 file 		input_file: text;-- open read_mode;--estrutura representando arquivo de entrada de dados
 file 		desired_file: text;-- open read_mode;--estrutura representando arquivo de entrada de dados
-file 		output_file: text;-- open write_mode;--estrutura representando arquivo de saída de dados
+file 		output_file: text;-- open write_mode;--estrutura representando arquivo de saída de dados da simulacao no Octave
 
 constant COUNT_MAX: integer := 
 integer(floor(real(real(fs)*real(TIME_DELTA/1 us)/1000000.0)/real(2.0*(1.0-real(fs)*real(TIME_DELTA/1 us)/1000000.0))));
@@ -324,14 +324,17 @@ begin
 		variable v_space: character;--stores the white space used to separate 2 arguments
 		variable v_A: std_logic_vector(31 downto 0);--input of filter
 		variable v_B: std_logic_vector(31 downto 0);--desired response
+		variable v_C: std_logic_vector(31 downto 0);--expected filter output (calculated  by Octave)
 		variable v_iline_A: line;
 		variable v_iline_B: line;
+		variable v_iline_C: line;
 		
 		variable count: integer := 0;-- para sincronização da apresentação de amostras
 		
 	begin
 		file_open(input_file,"input_vectors.txt",read_mode);--PRECISA FICAR NA PASTA simulation/modelsim
 		file_open(desired_file,"desired_vectors.txt",read_mode);--PRECISA FICAR NA PASTA simulation/modelsim
+		file_open(output_file,"output_vectors.txt",read_mode);--PRECISA FICAR NA PASTA simulation/modelsim
 		
 		wait for TIME_RST+2*FILTER_CLK_SEMIPERIOD;--wait until reset finishes
 --		wait until filter_CLK ='1';-- waits until the first rising edge after reset
@@ -349,6 +352,10 @@ begin
 			readline(desired_file,v_iline_B);--lê uma linha do arquivo de resposta desejada
 			hread(v_iline_B,v_B);
 			desired <= v_B;-- assigns desired response to the algorithm
+			
+			readline(output_file,v_iline_C);--lê uma linha do arquivo de resposta desejada
+			hread(v_iline_C,v_C);
+			expected_output <= v_C;-- assigns exepcted filter response (calculated by Octave)
 			
 			-- IMPORTANTE: CONVERSÃO DE TEMPO PARA REAL
 			-- se FILTER_CLK_SEMIPERIOD em ms, use 1000 e 1 ms
@@ -373,22 +380,22 @@ begin
 	end process;
 	
 	--reads adaptive filter response
-	write_proc: process(data_out, filter_CLK)--writing output file every time data_out changes introduces spurious pulses
-		variable v_oline: line;
-		variable v_C: std_logic_vector(31 downto 0);--data to be written
-	begin
-		if (filter_CLK'event and filter_CLK='0') then-- falling_edge(filter_CLK): when outputs are sampled in filter and xN
-			file_open(output_file,"output_vectors.txt",append_mode);--PRECISA FICAR NA PASTA simulation/modelsim
-			
-			v_C := data_out;
-			hwrite(v_oline, v_C);--write values in hex notation
---			write(v_oline,string'(" "));
---			write(v_oline,time'image(now));
-			writeline(output_file, v_oline);
-				
-			file_close(output_file);
-		end if;
-	end process;
+--	write_proc: process(data_out, filter_CLK)--writing output file every time data_out changes introduces spurious pulses
+--		variable v_oline: line;
+--		variable v_C: std_logic_vector(31 downto 0);--data to be written
+--	begin
+--		if (filter_CLK'event and filter_CLK='0') then-- falling_edge(filter_CLK): when outputs are sampled in filter and xN
+--			file_open(output_file,"output_vectors.txt",append_mode);--PRECISA FICAR NA PASTA simulation/modelsim
+--			
+--			v_C := data_out;
+--			hwrite(v_oline, v_C);--write values in hex notation
+----			write(v_oline,string'(" "));
+----			write(v_oline,time'image(now));
+--			writeline(output_file, v_oline);
+--				
+--			file_close(output_file);
+--		end if;
+--	end process;
 												
 	floating_point_unity: fpu port map (A => fpu_A,
 													B => fpu_B,
