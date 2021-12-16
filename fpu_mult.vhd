@@ -54,10 +54,9 @@ begin
 	);
 
 process(A,B,A_fp,B_fp,P)
-	variable shifted_A_expanded_mantissa: unsigned(23 downto 0);
-	variable shifted_B_expanded_mantissa: unsigned(23 downto 0);
-	variable res_expanded_mantissa: std_logic_vector(24 downto 0);
-	variable res_mantissa: std_logic_vector(22 downto 0);
+	variable truncated_bits: std_logic_vector(23 downto 0);--bits that will be lost, used for rounding
+	variable res_expanded_mantissa: std_logic_vector(24 downto 0);--bit 24 should be zero, might be '1' if rounding causes overflow
+	variable res_mantissa: std_logic_vector(22 downto 0);--mantissa portion that is STORED
 	variable res_exp_aux: std_logic_vector(8 downto 0);--1 additional bit for overflow/underflow detection
 	variable overflow_aux: std_logic;--auxiliary variable
 	variable underflow_aux: std_logic;--auxiliary variable
@@ -86,40 +85,62 @@ process(A,B,A_fp,B_fp,P)
 				if (B = positive_zero or B = negative_zero) then--B is zero
 					result <= NaN;
 				else-- B is normal
-					result <= A xor (B_fp.sign & "0000000000000000000000000000000");
+					result <= A xor (B_fp.sign & (30 downto 0 => '0'));
 				end if;
 			end if;
 		else--therefore, only B is Inf, A might be zero or normal
 				if (A = positive_zero or A = negative_zero) then--A is zero
 					result <= NaN;
 				else-- A is normal
-					result <= B xor (A_fp.sign & "0000000000000000000000000000000");
+					result <= B xor (A_fp.sign & (30 downto 0 => '0'));
 				end if;
 		end if;
 	elsif ((A = positive_zero or A = negative_zero) or
 	(B = positive_zero or B = negative_zero)) then-- check for zero
 		overflow_aux := '0';
 		underflow_aux:= '0';
-		result <= (A_fp.sign xor B_fp.sign) & positive_zero(30 downto 0);
-	else
---		res_sign := A_fp.sign xor B_fp.sign;
+		result <= (A_fp.sign xor B_fp.sign) & (30 downto 0 => '0');
+		
+	else --end of pre-multiplier, now handle normal cases
 		
 		res_exp_aux := ('0' & A_fp.exponent) + ('0' & B_fp.exponent) - EXP_BIAS;
 		--normalization: only 2 cases: exp=A_exp+B_exp or exp=A_exp+B_exp+1
 		if (P(47)='1') then--exp=A_exp+B_exp+1
 			res_exp_aux := res_exp_aux + 1;
-			res_mantissa := P(46 downto 24);
+			res_expanded_mantissa := '0' & P(47 downto 24);
+			truncated_bits := P(23 downto 0);
 		else--exp=A_exp+B_exp
 			--keep current res_exp
-			res_mantissa := P(45 downto 23);--P(46) must be '1' if P(47)='0'
+			res_expanded_mantissa := '0' & P(46 downto 23);--P(46) must be '1' if P(47)='0'			
+			truncated_bits := P(22 downto 0) & '0';
 		end if;
+
+		--roundTiesToEven
+		if (truncated_bits(-1+24)='1' and truncated_bits(-2+24 downto 0) >= 0) then -- fractionary part > 0.5
+			res_expanded_mantissa := res_expanded_mantissa + 1;
+		elsif (truncated_bits(-1+24)='0') then-- fractionary part < 0.5
+			 res_expanded_mantissa := res_expanded_mantissa;
+		else -- fractionary part = 0.5
+			if (res_expanded_mantissa(0)/='0') then
+				res_expanded_mantissa := res_expanded_mantissa + 1;
+			end if;
+		end if;
+		
+		--since rounding might increase the mantissa, we need normalization again
+		if (res_expanded_mantissa(24)='1') then
+			res_exp_aux := res_exp_aux + 1;
+			truncated_bits := res_expanded_mantissa(0) & truncated_bits(-1+24 downto 1);--bit 0 of res_expanded_mantissa will be lost
+			res_expanded_mantissa := '0' & res_expanded_mantissa (24 downto 1);-- now bit 24 is '0', bit 23 is '1'
+		end if;		
+		
+		res_mantissa := res_expanded_mantissa(22 downto 0);
 		
 		result <= (A_fp.sign xor B_fp.sign) & res_exp_aux(7 downto 0) & res_mantissa;
 		
 		--overflow/underflow detection. See ovflw_undflw.txt for explanation
 --		overflow_aux := res_exp_aux(8) and (not res_exp_aux(7));
 --		underflow_aux := res_exp_aux(8) and  res_exp_aux(7);
-		if ((res_exp_aux(8 downto 7) = "10") or (res_exp_aux(7 downto 0) = "11111111")) then
+		if ((res_exp_aux(8 downto 7) = "10") or (res_exp_aux(7 downto 0) = (7 downto 0 => '1'))) then
 			overflow_aux := '1';
 		else
 			overflow_aux := '0';

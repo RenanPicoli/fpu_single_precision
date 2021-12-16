@@ -163,7 +163,7 @@ process(A,B,A_fp,B_fp)
 			else--result is zero (0x00000000)
 				res_mantissa := (others=>'0');
 				res_exp_aux := (others=>'0');
-			end if;			
+			end if;
 			
 			--roundTiesToEven
 			if (truncated_bits(-1+256)='1' and truncated_bits(-2+256 downto 0) >= 0) then -- fractionary part > 0.5
