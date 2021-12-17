@@ -124,7 +124,7 @@ process(A,B,A_fp,B_fp,res_expanded_mantissa)
 		-- overflow/underflow detection. See ovflw_undflw.txt for explanation
 		--	overflow_aux := res_exp_aux(8) and (not res_exp_aux(7));
 		--	underflow_aux := res_exp_aux(8) and res_exp_aux(7);
-		if ((res_exp_aux(8 downto 7) = "10") or (res_exp_aux(7 downto 0) = "11111111")) then
+		if ((res_exp_aux(8 downto 7) = "10") or (res_exp_aux(7 downto 0) = (7 downto 0 => '1'))) then
 			overflow_aux := '1';
 		else
 			overflow_aux := '0';
