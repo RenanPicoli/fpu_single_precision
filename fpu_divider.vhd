@@ -30,15 +30,14 @@ signal A_fp: float;
 signal B_fp: float;
 signal A_expanded_mantissa: std_logic_vector(23 downto 0);
 signal B_expanded_mantissa: std_logic_vector(23 downto 0);
-signal res_expanded_mantissa: std_logic_vector(23 downto 0);
 
 --23 because expanded mantissais 24 bits long
-type A_matrix is array (0 to 23) of std_logic_vector(24 downto 0);--precisa 1 bit a mais pq os restos intermediários são multiplicados por 2
+type A_matrix is array (0 to 25) of std_logic_vector(24 downto 0);--precisa 1 bit a mais pq os restos intermediários são multiplicados por 2
 signal A_inter: A_matrix;--dividendos intermediários
-signal C: std_logic_vector(0 to 23);--resultado das comparações
-type R_matrix is array (0 to 23) of std_logic_vector(24 downto 0);--a rigor, só precisa de 23 bit pq é o tamanho de B_expanded_mantissa
+signal C: std_logic_vector(0 to 25);--resultado das comparações + 1bit para arrendondamento
+type R_matrix is array (0 to 25) of std_logic_vector(24 downto 0);--a rigor, só precisa de 23 bit pq é o tamanho de B_expanded_mantissa
 signal R: R_matrix;--restos intermediários
-type D_matrix is array (0 to 23) of std_logic_vector(24 downto 0);--a rigor, só precisa de 23 bit pq é o tamanho de B_expanded_mantissa
+type D_matrix is array (0 to 25) of std_logic_vector(24 downto 0);--a rigor, só precisa de 23 bit pq é o tamanho de B_expanded_mantissa
 signal D: D_matrix;--resultados de diferenças
 begin
 
@@ -49,7 +48,7 @@ begin
 	B_fp <= (B(31),B(30 downto 23),B(22 downto 0));
 
 --signal assignments
- lines: for n in 1 to 23 generate
+ lines: for n in 1 to 25 generate
 	D(n) <= A_inter(n) - ('0' & B_expanded_mantissa);
 	C(n) <= '1' when D(n)(24)='0'-- A_inter(n) >= '0' & B_expanded_mantissa
 				else '0';
@@ -65,13 +64,14 @@ begin
  C(0) <= '1' when D(0)(24)='0' -- this means A_expanded_mantissa >= B_expanded_mantissa
 			else '0';
  A_inter(0) <= '0' & A_expanded_mantissa;
- res_expanded_mantissa <= C;--C(0) might be '0', needs normalization below
 
-process(A,B,A_fp,B_fp,res_expanded_mantissa)
+process(A,B,A_fp,B_fp,C,R)
 	variable shifted_A_expanded_mantissa: unsigned(23 downto 0);
 	variable shifted_B_expanded_mantissa: unsigned(23 downto 0);
 	variable res_mantissa: std_logic_vector(22 downto 0);
---	variable res_sign: std_logic;	
+--	variable res_sign: std_logic;
+	variable res_expanded_mantissa: std_logic_vector(26 downto 0);--1 bit de overflow + 24 bits de mantissa expandida + 2bit para arrendondamento
+	variable truncated_bits: std_logic_vector(-1+256 downto 0);
 	variable res_exp_aux: std_logic_vector(8 downto 0);--1 additional bit for overflow/underflow detection
 	variable overflow_aux: std_logic;--auxiliary variable
 	variable underflow_aux: std_logic;--auxiliary variable
@@ -80,6 +80,7 @@ process(A,B,A_fp,B_fp,res_expanded_mantissa)
 
 	--this int varies from 0-255+127=-128=1'1000'0000 to 255-0+127=382=1'0111'1110
 	res_exp_aux := ('0' & A_fp.exponent) - ('0' & B_fp.exponent) + EXP_BIAS;
+	res_expanded_mantissa := '0' & C;--C(0) might be '0', needs normalization below
 	
 	-- pre-multiplier: trivial cases
 	if ((A_fp.exponent = x"FF" and A_fp.mantissa > 0) or
@@ -114,12 +115,47 @@ process(A,B,A_fp,B_fp,res_expanded_mantissa)
 	-- division: normal case
 	else
 		-- normalization: only 2 cases: C0C1=1X or C0C1=01
-		if res_expanded_mantissa(23)='1' then--no need for normalization
-			result <= (A_fp.sign xor B_fp.sign) & res_exp_aux(7 downto 0) & res_expanded_mantissa(22 downto 0);
+		if res_expanded_mantissa(25)='1' then--no need for normalization, only rounding
+			--roundTiesToEven
+			if (res_expanded_mantissa(1)='0') then-- first non encoded bit
+				--round down
+				res_expanded_mantissa := res_expanded_mantissa;				
+			elsif (res_expanded_mantissa(1)='1' and R(24) /= (24 downto 0 =>'0')) then
+				--round up
+				res_expanded_mantissa(25 downto 2) := res_expanded_mantissa(25 downto 2) + 1;--might need normalization again
+				res_expanded_mantissa (1 downto 0) := "00";
+			else-- tie: rounds to nearest even mantissa
+				if (res_expanded_mantissa(2)/='0') then
+					res_expanded_mantissa(25 downto 2) := res_expanded_mantissa(25 downto 2) + 1;
+					res_expanded_mantissa (1 downto 0) := "00";
+				end if;				
+			end if;
+--			result <= (A_fp.sign xor B_fp.sign) & res_exp_aux(7 downto 0) & res_expanded_mantissa(22 downto 0);
 		else--C(0)='0' but C(1)='1'
 			res_exp_aux := res_exp_aux - 1;--might produce underflow
-			result <= (A_fp.sign xor B_fp.sign) & res_exp_aux(7 downto 0) & res_expanded_mantissa(21 downto 0) & '0';
+			--roundTiesToEven
+			if (res_expanded_mantissa(0)='0') then-- first non encoded bit now is bit 0 since bit 25 will be discarded
+				--round down
+				res_expanded_mantissa := res_expanded_mantissa;				
+			elsif (res_expanded_mantissa(0)='1' and R(25) /= (24 downto 0 =>'0')) then
+				--round up
+				res_expanded_mantissa(25 downto 1) := res_expanded_mantissa(25 downto 1) + 1;--might need normalization again
+				res_expanded_mantissa (0) := '0';
+			else-- tie: rounds to nearest even mantissa
+				if (res_expanded_mantissa(2)/='0') then
+					res_expanded_mantissa(25 downto 1) := res_expanded_mantissa(25 downto 1) + 1;
+					res_expanded_mantissa (0) := '0';
+				end if;				
+			end if;
 		end if;
+			
+		--since rounding might increase value by one, we need normalize again
+		if (res_expanded_mantissa(26)='1') then
+			res_exp_aux := res_exp_aux + 1;
+			res_expanded_mantissa := '0' & res_expanded_mantissa (26 downto 1);
+		end if;
+			
+		result <= (A_fp.sign xor B_fp.sign) & res_exp_aux(7 downto 0) & res_expanded_mantissa(24 downto 2);
 
 		-- overflow/underflow detection. See ovflw_undflw.txt for explanation
 		--	overflow_aux := res_exp_aux(8) and (not res_exp_aux(7));
