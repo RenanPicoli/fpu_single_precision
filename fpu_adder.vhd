@@ -138,7 +138,7 @@ process(A,B,A_fp,B_fp)
 --				B_expanded_mantissa := std_logic_vector(shifted_B_expanded_mantissa);--shiftar mantissas até exponentes serem iguais
 				all_possible_shifts_mantissa := shift_right(unsigned(B_expanded_mantissa & (-1+255 downto 0 =>'0')),to_integer(unsigned(A_fp.exponent-B_fp.exponent)));
 				truncated_bits := std_logic_vector(all_possible_shifts_mantissa(-1+255 downto 0)) & '0';
-				truncated_bits := ('0' & (not truncated_bits)) + 1;-- accounts for the fact that we are calculating |A| - |B|
+				truncated_bits := (not truncated_bits) + 1;-- accounts for the fact that we are calculating |A| - |B|
 				res_expanded_mantissa := ('0' & std_logic_vector(shifted_A_expanded_mantissa)) - ('0' & std_logic_vector(shifted_B_expanded_mantissa));
 			else-- |A| <= |B|
 				res_sign := B_fp.sign;
@@ -148,7 +148,7 @@ process(A,B,A_fp,B_fp)
 --				A_expanded_mantissa := std_logic_vector(shifted_A_expanded_mantissa);--shiftar mantissas até exponentes serem iguais
 				all_possible_shifts_mantissa := shift_right(unsigned(A_expanded_mantissa & (-1+255 downto 0 =>'0')),to_integer(unsigned(B_fp.exponent-A_fp.exponent)));
 				truncated_bits := std_logic_vector(all_possible_shifts_mantissa(-1+255 downto 0)) & '0';
-				truncated_bits := ('0' & (not truncated_bits)) + 1;-- accounts for the fact that we are calculating |B| - |A|
+				truncated_bits := (not truncated_bits) + 1;-- accounts for the fact that we are calculating |B| - |A|
 				res_expanded_mantissa := ('0' & std_logic_vector(shifted_B_expanded_mantissa)) - ('0' & std_logic_vector(shifted_A_expanded_mantissa));
 			end if;
 		
