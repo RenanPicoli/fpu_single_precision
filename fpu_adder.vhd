@@ -44,6 +44,7 @@ process(A,B,A_fp,B_fp)
 	variable shifted_B_expanded_mantissa: unsigned(23 downto 0);
 	variable all_possible_shifts_mantissa: unsigned(23+255 downto 0);--accounts for all possible shifts of EXPANDED mantissa
 	variable truncated_bits: std_logic_vector(-1+256 downto 0);
+	variable truncated_bits_ovf: std_logic;--indicates overflow of truncated_bits (when calculated its twos complement)
 	variable res_expanded_mantissa: std_logic_vector(24 downto 0);
 	variable res_mantissa: std_logic_vector(22 downto 0);
 	variable res_sign: std_logic;
@@ -57,6 +58,8 @@ process(A,B,A_fp,B_fp)
 	B_expanded_mantissa := '1' & B_fp.mantissa;
 	shifted_A_expanded_mantissa := unsigned(A_expanded_mantissa);--initial value
 	shifted_B_expanded_mantissa := unsigned(B_expanded_mantissa);--initial value
+	
+	truncated_bits_ovf := '0';
 	
 	-- pre-adder
 	if ((A = positive_zero or A = negative_zero) or
@@ -103,19 +106,19 @@ process(A,B,A_fp,B_fp)
 			if(A_fp.exponent > B_fp.exponent) then-- |A| > |B|
 				--B needs to be shifted
 				shifted_B_expanded_mantissa := shift_right(unsigned(B_expanded_mantissa),to_integer(unsigned(A_fp.exponent-B_fp.exponent)));
-				B_expanded_mantissa := std_logic_vector(shifted_B_expanded_mantissa);--shiftar mantissas até exponentes serem iguais
+--				B_expanded_mantissa := std_logic_vector(shifted_B_expanded_mantissa);--shiftar mantissas até exponentes serem iguais
 				res_exp_aux := '0' & A_fp.exponent;
 				all_possible_shifts_mantissa := shift_right(unsigned(B_expanded_mantissa & (-1+255 downto 0 =>'0')),to_integer(unsigned(A_fp.exponent-B_fp.exponent)));
 				truncated_bits := std_logic_vector(all_possible_shifts_mantissa(-1+255 downto 0)) & '0';
 			else-- |A| =< |B|
 				--A needs to be expanded
 				shifted_A_expanded_mantissa := shift_right(unsigned(A_expanded_mantissa),to_integer(unsigned(B_fp.exponent-A_fp.exponent)));
-				A_expanded_mantissa := std_logic_vector(shifted_A_expanded_mantissa);--shiftar mantissas até exponentes serem iguais
+--				A_expanded_mantissa := std_logic_vector(shifted_A_expanded_mantissa);--shiftar mantissas até exponentes serem iguais
 				res_exp_aux := '0' & B_fp.exponent;
 				all_possible_shifts_mantissa := shift_right(unsigned(A_expanded_mantissa & (-1+255 downto 0 =>'0')),to_integer(unsigned(B_fp.exponent-A_fp.exponent)));
 				truncated_bits := std_logic_vector(all_possible_shifts_mantissa(-1+255 downto 0)) & '0';
 			end if;
-			res_expanded_mantissa := ('0'& A_expanded_mantissa) + ('0' & B_expanded_mantissa);
+			res_expanded_mantissa := ('0'& std_logic_vector(shifted_A_expanded_mantissa)) + ('0' & std_logic_vector(shifted_B_expanded_mantissa));
 			
 			if(res_expanded_mantissa(24)='1')then--1o passo da normalizacao: garantir bit 24 = 0
 				res_exp_aux := res_exp_aux + 1;
@@ -132,21 +135,21 @@ process(A,B,A_fp,B_fp)
 				res_exp_aux  := '0' & A_fp.exponent;
 
 				shifted_B_expanded_mantissa := shift_right(unsigned(B_expanded_mantissa),to_integer(unsigned(A_fp.exponent-B_fp.exponent)));
-				B_expanded_mantissa := std_logic_vector(shifted_B_expanded_mantissa);--shiftar mantissas até exponentes serem iguais
+--				B_expanded_mantissa := std_logic_vector(shifted_B_expanded_mantissa);--shiftar mantissas até exponentes serem iguais
 				all_possible_shifts_mantissa := shift_right(unsigned(B_expanded_mantissa & (-1+255 downto 0 =>'0')),to_integer(unsigned(A_fp.exponent-B_fp.exponent)));
 				truncated_bits := std_logic_vector(all_possible_shifts_mantissa(-1+255 downto 0)) & '0';
-				truncated_bits := (not truncated_bits) + 1;-- accounts for the fact that we are calculating |A| - |B|
-				res_expanded_mantissa := ('0' & A_expanded_mantissa) - ('0' & B_expanded_mantissa);
+				truncated_bits := ('0' & (not truncated_bits)) + 1;-- accounts for the fact that we are calculating |A| - |B|
+				res_expanded_mantissa := ('0' & std_logic_vector(shifted_A_expanded_mantissa)) - ('0' & std_logic_vector(shifted_B_expanded_mantissa));
 			else-- |A| <= |B|
 				res_sign := B_fp.sign;
 				res_exp_aux  := '0' & B_fp.exponent;
 				
 				shifted_A_expanded_mantissa := shift_right(unsigned(A_expanded_mantissa),to_integer(unsigned(B_fp.exponent-A_fp.exponent)));
-				A_expanded_mantissa := std_logic_vector(shifted_A_expanded_mantissa);--shiftar mantissas até exponentes serem iguais
+--				A_expanded_mantissa := std_logic_vector(shifted_A_expanded_mantissa);--shiftar mantissas até exponentes serem iguais
 				all_possible_shifts_mantissa := shift_right(unsigned(A_expanded_mantissa & (-1+255 downto 0 =>'0')),to_integer(unsigned(B_fp.exponent-A_fp.exponent)));
 				truncated_bits := std_logic_vector(all_possible_shifts_mantissa(-1+255 downto 0)) & '0';
-				truncated_bits := (not truncated_bits) + 1;-- accounts for the fact that we are calculating |B| - |A|
-				res_expanded_mantissa := ('0' & B_expanded_mantissa) - ('0' & A_expanded_mantissa);
+				truncated_bits := ('0' & (not truncated_bits)) + 1;-- accounts for the fact that we are calculating |B| - |A|
+				res_expanded_mantissa := ('0' & std_logic_vector(shifted_B_expanded_mantissa)) - ('0' & std_logic_vector(shifted_A_expanded_mantissa));
 			end if;
 		
 		end if;
@@ -158,15 +161,9 @@ process(A,B,A_fp,B_fp)
 				res_expanded_mantissa := res_expanded_mantissa (23 downto 0) & truncated_bits(-1+256);--shift left, bits that would be lost might be recovered
 				truncated_bits := truncated_bits(-2+256 downto 0) & '0';--shift left, bits that would be lost might be recovered
 			end loop;
-			if(res_expanded_mantissa(23)='1')then--normalization succeeded: there is '1' in bit 23
-				res_mantissa := res_expanded_mantissa (22 downto 0);
-			else--result is zero (0x00000000)
-				res_mantissa := (others=>'0');
-				res_exp_aux := (others=>'0');
-			end if;
 			
 			--roundTiesToEven
-			if (truncated_bits(-1+256)='1' and truncated_bits(-2+256 downto 0) >= 0) then -- fractionary part > 0.5
+			if (truncated_bits(-1+256)='1' and truncated_bits(-2+256 downto 0) > 0) then -- fractionary part > 0.5
 				res_expanded_mantissa := res_expanded_mantissa + 1;
 			elsif (truncated_bits(-1+256)='0') then-- fractionary part < 0.5
 				 res_expanded_mantissa := res_expanded_mantissa;
@@ -184,6 +181,12 @@ process(A,B,A_fp,B_fp)
 				res_mantissa := res_expanded_mantissa (22 downto 0);
 			end if;
 			
+			if(res_expanded_mantissa(23)='1')then--normalization succeeded: there is '1' in bit 23
+				res_mantissa := res_expanded_mantissa (22 downto 0);
+			else--result is zero (0x00000000)
+				res_mantissa := (others=>'0');
+				res_exp_aux := (others=>'0');
+			end if;			
 			result <= res_sign & res_exp_aux(7 downto 0) & res_mantissa;
 
 			-- overflow/underflow detection. See ovflw_undflw.txt for explanation

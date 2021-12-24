@@ -116,7 +116,7 @@ process(A,B,A_fp,B_fp,P)
 		end if;
 
 		--roundTiesToEven
-		if (truncated_bits(-1+24)='1' and truncated_bits(-2+24 downto 0) >= 0) then -- fractionary part > 0.5
+		if (truncated_bits(-1+24)='1' and truncated_bits(-2+24 downto 0) > 0) then -- fractionary part > 0.5
 			res_expanded_mantissa := res_expanded_mantissa + 1;
 		elsif (truncated_bits(-1+24)='0') then-- fractionary part < 0.5
 			 res_expanded_mantissa := res_expanded_mantissa;
