@@ -112,38 +112,26 @@ process(A,B,A_fp,B_fp,C,R)
 	else
 		-- normalization: only 2 cases: C0C1=1X or C0C1=01
 		if res_expanded_mantissa(25)='1' then--no need for normalization, only rounding
-			--roundTiesToEven
-			if (res_expanded_mantissa(1)='0') then-- first non encoded bit
-				--round down
-				res_expanded_mantissa := res_expanded_mantissa;				
-			elsif (res_expanded_mantissa(1)='1' and R(24) /= (24 downto 0 =>'0')) then
-				--round up
-				res_expanded_mantissa(25 downto 2) := res_expanded_mantissa(25 downto 2) + 1;--might need normalization again
-				res_expanded_mantissa (1 downto 0) := "00";
-			else-- tie: rounds to nearest even mantissa
-				if (res_expanded_mantissa(2)/='0') then
-					res_expanded_mantissa(25 downto 2) := res_expanded_mantissa(25 downto 2) + 1;
-					res_expanded_mantissa (1 downto 0) := "00";
-				end if;				
-			end if;
---			result <= (A_fp.sign xor B_fp.sign) & res_exp_aux(7 downto 0) & res_expanded_mantissa(22 downto 0);
+			res_exp_aux := res_exp_aux;
+			res_expanded_mantissa := res_expanded_mantissa;
 		else--C(0)='0' but C(1)='1'
 			res_exp_aux := res_exp_aux - 1;--might produce underflow
 			res_expanded_mantissa := res_expanded_mantissa(25 downto 0) & C(26);
-			--roundTiesToEven
-			if (res_expanded_mantissa(0)='0') then-- first non encoded bit now is bit 0 since bit 25 will be discarded
-				--round down
-				res_expanded_mantissa := res_expanded_mantissa;				
-			elsif (res_expanded_mantissa(0)='1' and R(25) /= (24 downto 0 =>'0')) then
-				--round up
-				res_expanded_mantissa(25 downto 1) := res_expanded_mantissa(25 downto 1) + 1;--might need normalization again
-				res_expanded_mantissa (0) := '0';
-			else-- tie: rounds to nearest even mantissa
-				if (res_expanded_mantissa(2)/='0') then
-					res_expanded_mantissa(25 downto 1) := res_expanded_mantissa(25 downto 1) + 1;
-					res_expanded_mantissa (0) := '0';
-				end if;				
-			end if;
+		end if;
+		
+		--roundTiesToEven
+		if (res_expanded_mantissa(1)='0') then-- first non encoded bit
+			--round down
+			res_expanded_mantissa := res_expanded_mantissa;				
+		elsif (res_expanded_mantissa(1)='1' and R(24) /= (24 downto 0 =>'0')) then
+			--round up
+			res_expanded_mantissa(25 downto 2) := res_expanded_mantissa(25 downto 2) + 1;--might need normalization again
+			res_expanded_mantissa (1 downto 0) := "00";
+		else-- tie: rounds to nearest even mantissa
+			if (res_expanded_mantissa(2)/='0') then
+				res_expanded_mantissa(25 downto 2) := res_expanded_mantissa(25 downto 2) + 1;
+				res_expanded_mantissa (1 downto 0) := "00";
+			end if;				
 		end if;
 			
 		--since rounding might increase value by one, we need normalize again
