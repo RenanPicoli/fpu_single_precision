@@ -52,6 +52,9 @@ process(A,B)
 
 	A_fp := (A(31),A(30 downto 23),A(22 downto 0));
 	B_fp := (B(31),B(30 downto 23),B(22 downto 0));
+	--trying to prevent latch:
+	A_expanded_mantissa := '1' & A_fp.mantissa;
+	B_expanded_mantissa := '1' & B_fp.mantissa;	
 
 	-- pre-adder
 	if ((A = positive_zero or A = negative_zero) or
@@ -134,13 +137,22 @@ process(A,B)
 			res_expanded_mantissa := res_expanded_mantissa;
 		end if;
 	
-		count := 23;--used in normalization, points to possible msb, 
-		while ((res_expanded_mantissa(23+255)='0') and (count>=0)) loop--normalization
-			res_exp_aux := res_exp_aux - 1;--pode ficar menor que 0
-			count := count - 1;
-			res_expanded_mantissa := res_expanded_mantissa (23+255 downto 0) & truncated_bits(-1+256);--shift left, bits that would be lost might be recovered
-			truncated_bits := truncated_bits(-2+256 downto 0) & '0';--shift left, bits that would be lost might be recovered
+--		count := 23;--used in normalization, points to possible msb, 
+--		while ((res_expanded_mantissa(23+255)='0') and (count>=0)) loop--normalization
+--			res_exp_aux := res_exp_aux - 1;--pode ficar menor que 0
+--			count := count - 1;
+--			res_expanded_mantissa := res_expanded_mantissa (23+255 downto 0) & truncated_bits(-1+256);--shift left, bits that would be lost might be recovered
+--			truncated_bits := truncated_bits(-2+256 downto 0) & '0';--shift left, bits that would be lost might be recovered
+--		end loop;
+		count := 0;--counts leading zeroes
+		while ((res_expanded_mantissa(23+255-count)='0') and count <= 23) loop--normalization
+			count := count + 1;
 		end loop;
+		res_exp_aux := res_exp_aux - count;--pode ficar menor que 0
+--		res_expanded_mantissa := res_expanded_mantissa (24+255-count downto 0) & truncated_bits(-1+256 downto -1+256-count+1);--shift left, bits that would be lost might be recovered
+		res_expanded_mantissa := std_logic_vector(shift_left(unsigned(res_expanded_mantissa), count));
+		res_expanded_mantissa(count-1 downto 0) := truncated_bits(-1+256 downto -1+256-count+1);--shift left, bits that would be lost might be recovered
+		truncated_bits := std_logic_vector(shift_left(unsigned(truncated_bits), count));--shift left, bits that would be lost might be recovered
 		
 		--roundTiesToEven
 		if (truncated_bits(-1+256)='1' and truncated_bits(-2+256 downto 0) > 0) then -- fractionary part > 0.5
