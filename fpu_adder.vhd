@@ -9,8 +9,6 @@ library ieee;
 use ieee.std_logic_1164.all;
 use ieee.std_logic_unsigned.all;
 use ieee.numeric_std.all;--to_integer,shift_right
---use ieee.numeric_std.unsigned;--unsigned
---use ieee.std_logic_arith.all;-- DONT USE, use numeric_std.all instead
 
 use work.single_precision_type.all;--float
 
@@ -27,17 +25,15 @@ end entity;
 
 architecture bhv of fpu_adder is
 --signal and component declarations
-signal A_fp: float;
-signal B_fp: float;
-
---signal res_exp_aux: std_logic_vector(8 downto 0);--1 additional bit for overflow/underflow detection
 
 begin
 
-A_fp <= (A(31),A(30 downto 23),A(22 downto 0));
-B_fp <= (B(31),B(30 downto 23),B(22 downto 0));
 
-process(A,B,A_fp,B_fp)
+process(A,B)
+
+	variable A_fp: float;
+	variable B_fp: float;
+	variable tmp_float: float;--temporary, only for swap
 	variable A_expanded_mantissa: std_logic_vector(23 downto 0);
 	variable B_expanded_mantissa: std_logic_vector(23 downto 0);
 	variable shifted_A_expanded_mantissa: unsigned(23+255 downto 0);--accounts for all possible shifts of EXPANDED mantissa
@@ -53,11 +49,10 @@ process(A,B,A_fp,B_fp)
 	variable underflow_aux: std_logic;--auxiliary variable
 
 	begin
-	A_expanded_mantissa := '1' & A_fp.mantissa;
-	B_expanded_mantissa := '1' & B_fp.mantissa;
-	shifted_A_expanded_mantissa := unsigned(A_expanded_mantissa) & (-1+255 downto 0 =>'0');--initial value
-	shifted_B_expanded_mantissa := unsigned(B_expanded_mantissa) & (-1+255 downto 0 =>'0');--initial value
-	
+
+	A_fp := (A(31),A(30 downto 23),A(22 downto 0));
+	B_fp := (B(31),B(30 downto 23),B(22 downto 0));
+
 	-- pre-adder
 	if ((A = positive_zero or A = negative_zero) or
 	(B = positive_zero or B = negative_zero)) then-- check for zero
@@ -97,97 +92,97 @@ process(A,B,A_fp,B_fp)
 			res_sign := B_fp.sign;
 			result <= B;
 		end if;
-	else--end of pre-adder, handle normal cases
-		if (A_fp.sign xor B_fp.sign)='0' then--same sign
-			res_sign := A_fp.sign;
-			if(A_fp.exponent > B_fp.exponent) then-- |A| > |B|
-				--B needs to be shifted
-				shifted_B_expanded_mantissa := shift_right(unsigned(shifted_B_expanded_mantissa),to_integer(unsigned(A_fp.exponent-B_fp.exponent)));
-				res_exp_aux := '0' & A_fp.exponent;
-			else-- |A| =< |B|
-				--A needs to be expanded
-				shifted_A_expanded_mantissa := shift_right(unsigned(shifted_A_expanded_mantissa),to_integer(unsigned(B_fp.exponent-A_fp.exponent)));
-				res_exp_aux := '0' & B_fp.exponent;
-			end if;
-			
-		else --different signs
-		
-			if((A_fp.exponent > B_fp.exponent) or ((A_fp.exponent=B_fp.exponent)and(A_expanded_mantissa > B_expanded_mantissa))) then--this ensures |A| > |B|
-				res_sign := A_fp.sign;
-				res_exp_aux  := '0' & A_fp.exponent;
-
-				shifted_B_expanded_mantissa := shift_right(unsigned(shifted_B_expanded_mantissa),to_integer(unsigned(A_fp.exponent-B_fp.exponent)));
-				shifted_B_expanded_mantissa := (not shifted_B_expanded_mantissa) + 1;-- accounts for the fact that we are calculating |A| - |B|
-			else-- |A| <= |B|
-				res_sign := B_fp.sign;
-				res_exp_aux  := '0' & B_fp.exponent;
-				
-				shifted_A_expanded_mantissa := shift_right(unsigned(shifted_A_expanded_mantissa),to_integer(unsigned(B_fp.exponent-A_fp.exponent)));
-				shifted_A_expanded_mantissa := (not shifted_A_expanded_mantissa) + 1;-- accounts for the fact that we are calculating |B| - |A|
-			end if;
-		
+	else--end of pre-adder, HANDLE NORMAL CASES
+	
+		--first, since addition is commutative,
+		--will ensure A is greater (or equal) to B in magnitude
+		if((A_fp.exponent > B_fp.exponent) or ((A_fp.exponent=B_fp.exponent)and(A_expanded_mantissa > B_expanded_mantissa))) then-- ensures |A| > |B|
+			null;
+		else-- |A| =< |B|
+			--swaps A and B
+ 			tmp_float := A_fp;
+			A_fp := B_fp;
+			B_fp := A_fp;
 		end if;
 		
-			res_expanded_mantissa := ('0'& std_logic_vector(shifted_A_expanded_mantissa)) + ('0' & std_logic_vector(shifted_B_expanded_mantissa));
-			truncated_bits := std_logic_vector(res_expanded_mantissa(-1+255 downto 0)) & '0';
-				
-			if(res_expanded_mantissa(24+255)='1' and (A_fp.sign xor B_fp.sign)='0')then--1o passo da normalizacao: garantir bit 24 = 0, se sinais iguais
-				res_exp_aux := res_exp_aux + 1;
-				truncated_bits := res_expanded_mantissa (0+255) & truncated_bits (-1+256 downto 1);--res_expanded_mantissa (0) will be lost
-				res_expanded_mantissa := '0' & res_expanded_mantissa (24+255 downto 1);
-			else
-				res_expanded_mantissa := res_expanded_mantissa;
-			end if;
+		--now, |A| >= |B|
+ 		A_expanded_mantissa := '1' & A_fp.mantissa;
+		B_expanded_mantissa := '1' & B_fp.mantissa;		
+		shifted_A_expanded_mantissa := unsigned(A_expanded_mantissa) & (-1+255 downto 0 =>'0');
+		shifted_B_expanded_mantissa := unsigned(B_expanded_mantissa) & (-1+255 downto 0 =>'0');
 		
-			count := 23;--used in normalization, points to possible msb, 
-			while ((res_expanded_mantissa(23+255)='0') and (count>=0)) loop--normalization
-				res_exp_aux := res_exp_aux - 1;--pode ficar menor que 0
-				count := count - 1;
-				res_expanded_mantissa := res_expanded_mantissa (23+255 downto 0) & truncated_bits(-1+256);--shift left, bits that would be lost might be recovered
-				truncated_bits := truncated_bits(-2+256 downto 0) & '0';--shift left, bits that would be lost might be recovered
-			end loop;
+		--B needs to be shifted
+		shifted_B_expanded_mantissa := shift_right(unsigned(shifted_B_expanded_mantissa),to_integer(unsigned(A_fp.exponent-B_fp.exponent)));			
+	
+		if (A_fp.sign xor B_fp.sign)='0' then--same sign
+			null;			
+		else --different signs
+			shifted_B_expanded_mantissa := (not shifted_B_expanded_mantissa) + 1;-- accounts for the fact that we are calculating |A| - |B|
+		end if;
+		
+		res_sign := A_fp.sign;
+		res_exp_aux  := '0' & A_fp.exponent;
+	
+		res_expanded_mantissa := ('0'& std_logic_vector(shifted_A_expanded_mantissa)) + ('0' & std_logic_vector(shifted_B_expanded_mantissa));
+		truncated_bits := std_logic_vector(res_expanded_mantissa(-1+255 downto 0)) & '0';
 			
-			--roundTiesToEven
-			if (truncated_bits(-1+256)='1' and truncated_bits(-2+256 downto 0) > 0) then -- fractionary part > 0.5
+		if(res_expanded_mantissa(24+255)='1' and (A_fp.sign xor B_fp.sign)='0')then--1o passo da normalizacao: garantir bit 24 = 0, se sinais iguais
+			res_exp_aux := res_exp_aux + 1;
+			truncated_bits := res_expanded_mantissa (0+255) & truncated_bits (-1+256 downto 1);--res_expanded_mantissa (0) will be lost
+			res_expanded_mantissa := '0' & res_expanded_mantissa (24+255 downto 1);
+		else
+			res_expanded_mantissa := res_expanded_mantissa;
+		end if;
+	
+		count := 23;--used in normalization, points to possible msb, 
+		while ((res_expanded_mantissa(23+255)='0') and (count>=0)) loop--normalization
+			res_exp_aux := res_exp_aux - 1;--pode ficar menor que 0
+			count := count - 1;
+			res_expanded_mantissa := res_expanded_mantissa (23+255 downto 0) & truncated_bits(-1+256);--shift left, bits that would be lost might be recovered
+			truncated_bits := truncated_bits(-2+256 downto 0) & '0';--shift left, bits that would be lost might be recovered
+		end loop;
+		
+		--roundTiesToEven
+		if (truncated_bits(-1+256)='1' and truncated_bits(-2+256 downto 0) > 0) then -- fractionary part > 0.5
+			res_expanded_mantissa(24+255 downto 0+255) := res_expanded_mantissa(24+255 downto 0+255) + 1;
+		elsif (truncated_bits(-1+256)='0') then-- fractionary part < 0.5
+			 res_expanded_mantissa := res_expanded_mantissa;
+		else -- fractionary part = 0.5
+			if (res_expanded_mantissa(0+255)/='0') then
 				res_expanded_mantissa(24+255 downto 0+255) := res_expanded_mantissa(24+255 downto 0+255) + 1;
-			elsif (truncated_bits(-1+256)='0') then-- fractionary part < 0.5
-				 res_expanded_mantissa := res_expanded_mantissa;
-			else -- fractionary part = 0.5
-				if (res_expanded_mantissa(0+255)/='0') then
-					res_expanded_mantissa(24+255 downto 0+255) := res_expanded_mantissa(24+255 downto 0+255) + 1;
-				end if;
 			end if;
-			
-			--since rounding might increase value by one, we need normalize again
-			if (res_expanded_mantissa(24+255)='1' and (A_fp.sign xor B_fp.sign)='0') then
-				res_exp_aux := res_exp_aux + 1;
-				truncated_bits := res_expanded_mantissa(0+255) & truncated_bits(-1+256 downto 1);--bit 0 of res_expanded_mantissa will be lost
-				res_expanded_mantissa := '0' & res_expanded_mantissa (24+255 downto 1);
-				res_mantissa := res_expanded_mantissa (22+255 downto 0+255);
-			end if;
-			
-			if(res_expanded_mantissa(23+255)='1')then--normalization succeeded: there is '1' in bit 23
-				res_mantissa := res_expanded_mantissa (22+255 downto 0+255);
-			else--result is zero (0x00000000)
-				res_mantissa := (others=>'0');
-				res_exp_aux := (others=>'0');
-			end if;			
-			result <= res_sign & res_exp_aux(7 downto 0) & res_mantissa;
+		end if;
+		
+		--since rounding might increase value by one, we need normalize again
+		if (res_expanded_mantissa(24+255)='1' and (A_fp.sign xor B_fp.sign)='0') then
+			res_exp_aux := res_exp_aux + 1;
+			truncated_bits := res_expanded_mantissa(0+255) & truncated_bits(-1+256 downto 1);--bit 0 of res_expanded_mantissa will be lost
+			res_expanded_mantissa := '0' & res_expanded_mantissa (24+255 downto 1);
+			res_mantissa := res_expanded_mantissa (22+255 downto 0+255);
+		end if;
+		
+		if(res_expanded_mantissa(23+255)='1')then--normalization succeeded: there is '1' in bit 23
+			res_mantissa := res_expanded_mantissa (22+255 downto 0+255);
+		else--result is zero (0x00000000)
+			res_mantissa := (others=>'0');
+			res_exp_aux := (others=>'0');
+		end if;			
+		result <= res_sign & res_exp_aux(7 downto 0) & res_mantissa;
 
-			-- overflow/underflow detection. See ovflw_undflw.txt for explanation
-			--	overflow_aux := res_exp_aux(8) and (not res_exp_aux(7));
-			--	underflow_aux := res_exp_aux(8) and res_exp_aux(7);
-			if ((res_exp_aux(8 downto 7) = "10") or (res_exp_aux(7 downto 0) = (7 downto 0 => '1'))) then
-				overflow_aux := '1';
-			else
-				overflow_aux := '0';
-			end if;
-			
-			if (res_exp_aux(8 downto 7) = "11") then
-				underflow_aux := '1';
-			else
-				underflow_aux := '0';
-			end if;
+		-- overflow/underflow detection. See ovflw_undflw.txt for explanation
+		--	overflow_aux := res_exp_aux(8) and (not res_exp_aux(7));
+		--	underflow_aux := res_exp_aux(8) and res_exp_aux(7);
+		if ((res_exp_aux(8 downto 7) = "10") or (res_exp_aux(7 downto 0) = (7 downto 0 => '1'))) then
+			overflow_aux := '1';
+		else
+			overflow_aux := '0';
+		end if;
+		
+		if (res_exp_aux(8 downto 7) = "11") then
+			underflow_aux := '1';
+		else
+			underflow_aux := '0';
+		end if;
 			
 	end if;
 
