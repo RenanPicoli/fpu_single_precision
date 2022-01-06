@@ -41,10 +41,10 @@ begin
 				result		=> result		
 	);
 	
---	op <= "00";--add numbers
+	op <= "00";--add numbers
 --	op <= "01";--subtract numbers
 --	op <= "10";--multiply numbers
-	op <= "11";--divide numbers
+--	op <= "11";--divide numbers
 	
 	-----------------------------------------------------------
 	--	this process reads a file vector, loads its vectors,

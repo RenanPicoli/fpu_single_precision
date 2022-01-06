@@ -52,7 +52,7 @@ process(A,B)
 
 	A_fp := (A(31),A(30 downto 23),A(22 downto 0));
 	B_fp := (B(31),B(30 downto 23),B(22 downto 0));
-	--trying to prevent latch:
+	--trying to prevent latches:
 	A_expanded_mantissa := '1' & A_fp.mantissa;
 	B_expanded_mantissa := '1' & B_fp.mantissa;	
 
@@ -105,7 +105,7 @@ process(A,B)
 			--swaps A and B
  			tmp_float := A_fp;
 			A_fp := B_fp;
-			B_fp := A_fp;
+			B_fp := tmp_float;
 		end if;
 		
 		--now, |A| >= |B|
