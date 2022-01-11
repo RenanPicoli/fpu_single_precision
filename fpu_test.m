@@ -23,7 +23,7 @@ L=length(inputs);
 for i=1:floor(L/2)
   a=inputs(2*i-1);
   b=inputs(2*i);
-  y(i)= a / b;
+  y(i)= a + b;
 end
 ##y=single(y);% converte y para precisão simples
 
