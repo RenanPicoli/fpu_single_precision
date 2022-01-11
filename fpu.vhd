@@ -40,6 +40,8 @@ signal fpu_div_overflow: std_logic;
 signal fpu_div_underflow: std_logic;
 signal fpu_div_divideByZero: std_logic;
 
+constant EN_FAST_DIV: boolean := true;
+
 component fpu_adder
 port (
 	A: in std_logic_vector(31 downto 0);--supposed to be normalized
@@ -74,6 +76,19 @@ port (
 );
 end component;
 
+--uses fast adders (carry look ahead)
+component fpu_fast_divider
+port (
+	A: in std_logic_vector(31 downto 0);--supposed to be normalized
+	B: in std_logic_vector(31 downto 0);--supposed to be normalized
+	--FLAGS (overflow, underflow, etc)
+	divideByZero:	out std_logic;
+	overflow:		out std_logic;
+	underflow:		out std_logic;
+	result:out std_logic_vector(31 downto 0)
+);
+end component;
+
 begin
 	A_adder <= A;
 	B_adder <= B when (op="00") else-- addition
@@ -96,14 +111,29 @@ begin
 		result=> fpu_mult_res
 	);
 
-	divider: fpu_divider port map(
-		A  	=> A,
-		B  	=> B,
-		overflow	=> fpu_div_overflow,
-		underflow=> fpu_div_underflow,
-		divideByZero=> fpu_div_divideByZero,
-		result=> fpu_div_res
-	);
+	--can't use if generate with ELSE
+	fast_divider: if EN_FAST_DIV generate
+		f_div: fpu_fast_divider port map(
+			A  	=> A,
+			B  	=> B,
+			overflow	=> fpu_div_overflow,
+			underflow=> fpu_div_underflow,
+			divideByZero=> fpu_div_divideByZero,
+			result=> fpu_div_res
+		);
+	end generate fast_divider;
+
+	--can't use if generate with ELSE
+	divider: if not EN_FAST_DIV generate
+		common_div: fpu_divider port map(
+			A  	=> A,
+			B  	=> B,
+			overflow	=> fpu_div_overflow,
+			underflow=> fpu_div_underflow,
+			divideByZero=> fpu_div_divideByZero,
+			result=> fpu_div_res
+		);
+	end generate divider;
 	
 	result<= fpu_adder_res when (op = "00") else--addition
 				fpu_adder_res when (op = "01") else--subtraction
