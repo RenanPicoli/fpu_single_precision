@@ -25,19 +25,19 @@ end entity;
 architecture bhv of fast_adder is
 	--signal and component declarations
 	--basic CLA
-	component cla
+	component cla_8bit
 		port (
-			A: in std_logic_vector(3 downto 0);--unsigned integer
-			B: in std_logic_vector(3 downto 0);--unsigned integer
+			A: in std_logic_vector(7 downto 0);--unsigned integer
+			B: in std_logic_vector(7 downto 0);--unsigned integer
 			Cin: in std_logic;--input carry, allows cascading
 			Cout:	out std_logic;
 --			GG: out std_logic;
 --			PG: out std_logic;
-			S:		out std_logic_vector(3 downto 0)--A+B+Cin
+			S:		out std_logic_vector(7 downto 0)--A+B+Cin
 		);
 	end component;
 	
-	constant M: natural := 4;-- 4-bit adder
+	constant M: natural := 8;-- 4-bit adder or 8-bit adder
 	constant N_CLA: natural := integer(ceil(real(N)/real(M)));--number of CLA's
 
 --	signal P: std_logic_vector(N_CLA-1 downto 0);--carry propagation (between CLA's)
@@ -55,7 +55,7 @@ architecture bhv of fast_adder is
 	--generates combinatorial logic
 	adders: for i in 0 to N_CLA-1 generate
 		add_0: if i=0 generate
-			cla_0: cla port map (
+			cla_0: cla_8bit port map (
 				A => expanded_A(M-1 downto 0),
 				B => expanded_B(M-1 downto 0),
 				Cin => Cin,
@@ -66,7 +66,7 @@ architecture bhv of fast_adder is
 			);
 		end generate;
 		add_i: if (i> 0 and i < N_CLA) generate
-			cla_i: cla port map (
+			cla_i: cla_8bit port map (
 				A => expanded_A(M*(i+1)-1 downto M*i),
 				B => expanded_B(M*(i+1)-1 downto M*i),
 				Cin => C(i-1),
