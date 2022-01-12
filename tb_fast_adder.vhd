@@ -27,7 +27,7 @@ constant MAX_ITER: natural := 10;
 
 begin
 
-	DUT: entity work.cla
+	DUT: entity work.fast_adder
 	generic map (N => 32)
 	port map(A 		=> A,
 				B	 	=> B,

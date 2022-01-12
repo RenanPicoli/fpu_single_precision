@@ -53,7 +53,7 @@ architecture bhv of fast_adder is
 	expanded_B <= (N_CLA*M-1 downto N => '0') & B;--filling A and B with ones and zeros garantees carry propagation, with no carry generation
 	
 	--generates combinatorial logic
-	adders: for i in 0 to N-1 generate
+	adders: for i in 0 to N_CLA-1 generate
 		add_0: if i=0 generate
 			cla_0: cla port map (
 				A => expanded_A(M-1 downto 0),
