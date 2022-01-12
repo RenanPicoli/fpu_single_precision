@@ -1,5 +1,5 @@
 --------------------------------------------------
---carry look ahead adder (CLA)
+-- 4-bit carry look ahead adder (CLA)
 --Computes A+B+Cin
 --generates sum S and carry output Cout
 --outputs GG and PG are group generation and group propagation of carry, respectively for cascading
