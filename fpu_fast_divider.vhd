@@ -28,7 +28,7 @@ end entity;
 architecture bhv of fpu_fast_divider is
 --signal and component declarations
 component fast_adder
-generic (N: natural; M: natural);--N: operand sizes in bits, M: operand sizes of basic CLA
+generic (N: natural);--N: operand sizes in bits
 port (
 	A: in std_logic_vector(N-1 downto 0);--unsigned integer
 	B: in std_logic_vector(N-1 downto 0);--unsigned integer
@@ -61,7 +61,7 @@ begin
 	
 	--generates adders for subtractions ( A_inter(n) - ('0' & B_expanded_mantissa) )
 	differences: for i in 1 to 26 generate
-		sub: fast_adder generic map (N => 25, M => 4)
+		sub: fast_adder generic map (N => 25)
 		port map (A => A_inter(i),
 					 B => not ('0' & B_expanded_mantissa),
 					 Cin => '1',
