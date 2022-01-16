@@ -39,6 +39,14 @@ port (
 );
 end component;
 
+component sd_geq_zero
+generic (N: natural);--number of digits
+port (
+	A: in sd_vector;--SD binary number
+	S:	out std_logic--is '1' if A is greater or equal than zero
+);
+end component;
+
 signal A_fp: float;
 signal B_fp: float;
 signal A_expanded_mantissa: std_logic_vector(23 downto 0);
@@ -54,6 +62,8 @@ signal D: D_matrix;--resultados de diferenças
 
 signal sd_B: sd_vector(24 downto 0);
 signal neg_sd_B: sd_vector(24 downto 0);-- all bits of sd_B are negated (represents -B)
+
+signal geq_0: std_logic_vector(0 to 26);-- geq_0(i) ='1' means D(n) >= 0
 
 begin
 
@@ -71,13 +81,20 @@ begin
 					 Cin => "00",
 					 Cout => open,
 					 S => D(i));
-	end generate differences;
+		
+		geq_zero_n: sd_geq_zero generic map (N => 25)
+		port map (
+				A => D(i),
+				S => geq_0(i)
+		);
+	end generate differences; 
 
 --signal assignments
  lines: for n in 1 to 26 generate
 	--D(n) <= A_inter(n) - ('0' & B_expanded_mantissa);
 	--TODO: create a comparator, line below is not enough
-	C(n) <= '1' when D(n)(24)="00"-- A_inter(n) >= '0' & B_expanded_mantissa
+--	C(n) <= '1' when D(n)(24)="00"-- A_inter(n) >= '0' & B_expanded_mantissa
+	C(n) <= '1' when geq_0(n)='1'-- A_inter(n) >= '0' & B_expanded_mantissa
 				else '0';
 	
 	R(n)	<= D(n-1) when (C(n-1) = '1')
