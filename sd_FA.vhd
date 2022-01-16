@@ -1,23 +1,20 @@
 --------------------------------------------------
 --signed-digit 1-bit full adder
 --A and B encoded with 2 bits (signed digits) as follows:
---	   x+| x-|  s |
+--	   A+| A-|  s |
 -- 	0 | 0 |  0 |
 -- 	0 | 1 | -1 |
 -- 	1 | 1 |  0 |
 -- 	1 | 0 | +1 |
 --Computes A+B+Cin
 --generates sum S and carry output Cout
---by Renan Picoli de Souza
----------------------------------------------------
 
---library ieee;
---use ieee.std_logic_1164.all;
---
---package signed_digit_pkg is
---        type signed_digit is array (1 downto 0) of std_logic;-- (1) -> x+; (0) -> x-
---		  type sd_vector is array(natural range <>) of signed_digit;
---end package;
+--based on work "A New Algorithm for Carry-Free Addition of
+--Binary Signed-Digit Numbers" (Klaus Schneider and Adrian Willenb¨ucher)
+--available at https://es.cs.uni-kl.de/publications/datarsg/ScWi14a.pdf
+
+--NOTE: their work uses a different encoding
+---------------------------------------------------
 
 library ieee;
 use ieee.std_logic_1164.all;
@@ -29,137 +26,51 @@ entity sd_FA is
 port (
 	A: in signed_digit;--SD binary number
 	B: in signed_digit;--SD binary number
-	Cin: in signed_digit;--input carry, allows cascading
-	Cout:	out signed_digit;--output carry, allows cascading
-	S:		out signed_digit--A+B+Cin, encoded as SD binary number
+	lin: in boolean;
+	tin: in signed_digit;
+	lout:	out boolean;
+	tout:	out signed_digit;
+	S:		out signed_digit--sum digit encoded as SD binary number
 );
 end entity;
 
 architecture bhv of sd_FA is
 	--signal and component declarations
+	signal w1,w2,w3,w4,w: boolean;
+	signal u1,u0: std_logic;
 	
+	function to_std_logic(L: boolean) return std_ulogic is
+		variable output: std_ulogic;
 	begin
-
-	process(A,B,Cin)
-	begin
-		if(Cin = "01") then-- Cin = -1
-			
-			if(A = "01") then-- A = -1
-				
-				if(B = "01") then-- B = -1
-					S <= "01";-- S = -1
-					Cout <= "01";-- Cout = -1
-				elsif (B = "10") then-- B = +1
-					S <= "01";-- S = -1
-					Cout <= "00";-- Cout = 0
-				else-- B = +/-0
-					S <= "00";-- S = 0
-					Cout <= "01";-- Cout = -1
-				end if;
-			elsif (A = "10") then-- A = +1
-				
-				if(B = "01") then-- B = -1
-					S <= "01";-- S = 0
-					Cout <= "00";-- Cout = 0
-				elsif (B = "10") then-- B = +1
-					S <= "10";-- S = +1
-					Cout <= "00";-- Cout = 0
-				else-- B = +/-0
-					S <= "00";-- S = 0
-					Cout <= "00";-- Cout = 0
-				end if;
-			else-- A = +/-0
-				
-				if(B = "01") then-- B = -1
-					S <= "00";-- S = 0
-					Cout <= "01";-- Cout = -1
-				elsif (B = "10") then-- B = +1
-					S <= "00";-- S = 0
-					Cout <= "00";-- Cout = 0
-				else-- B = +/-0
-					S <= "01";-- S = -1
-					Cout <= "00";-- Cout = 0
-				end if;
-			end if;
-		elsif (Cin = "10") then-- Cin = +1
-			
-			if(A = "01") then-- A = -1
-				
-				if(B = "01") then-- B = -1
-					S <= "01";-- S = -1
-					Cout <= "00";-- Cout = 0
-				elsif (B = "10") then-- B = +1
-					S <= "10";-- S = +1
-					Cout <= "00";-- Cout = 0
-				else-- B = +/-0
-					S <= "00";-- S = 0
-					Cout <= "00";-- Cout = 0
-				end if;
-			elsif (A = "10") then-- A = +1
-				
-				if(B = "01") then-- B = -1
-					S <= "10";-- S = +1
-					Cout <= "00";-- Cout = 0
-				elsif (B = "10") then-- B = +1
-					S <= "10";-- S = +1
-					Cout <= "10";-- Cout = +1
-				else-- B = +/-0
-					S <= "00";-- S = 0
-					Cout <= "10";-- Cout = +1
-				end if;
-			else-- A = +/-0
-				
-				if(B = "01") then-- B = -1
-					S <= "00";-- S = 0
-					Cout <= "00";-- Cout = 0
-				elsif (B = "10") then-- B = +1
-					S <= "00";-- S = 0
-					Cout <= "10";-- Cout = +1
-				else-- B = +/-0
-					S <= "10";-- S = +1
-					Cout <= "00";-- Cout = 0
-				end if;
-			end if;
-		else-- Cin = +/-0
-			
-			if(A = "01") then-- A = -1
-				
-				if(B = "01") then-- B = -1
-					S <= "00";-- S = 0
-					Cout <= "01";-- Cout = -1
-				elsif (B = "10") then-- B = +1
-					S <= "00";-- S = 0
-					Cout <= "00";-- Cout = 0
-				else-- B = +/-0
-					S <= "01";-- S = -1
-					Cout <= "00";-- Cout = 0
-				end if;
-			elsif (A = "10") then-- A = +1
-				
-				if(B = "01") then-- B = -1
-					S <= "00";-- S = 0
-					Cout <= "00";-- Cout = 0
-				elsif (B = "10") then-- B = +1
-					S <= "00";-- S = 0
-					Cout <= "10";-- Cout = +1
-				else-- B = +/-0
-					S <= "10";-- S = +1
-					Cout <= "00";-- Cout = 0
-				end if;
-			else-- A = +/-0
-				
-				if(B = "01") then-- B = -1
-					S <= "01";-- S = -1
-					Cout <= "00";-- Cout = 0
-				elsif (B = "10") then-- B = +1
-					S <= "10";-- S = +1
-					Cout <= "00";-- Cout = 0
-				else-- B = +/-0
-					S <= "00";-- S = 0
-					Cout <= "00";-- Cout = 0
-				end if;
-			end if;
+		if L then
+			output := '1';
+		else
+			output := '0';
 		end if;
+		
+		return output;
+	end function to_std_logic;
+	
+begin
+
+	process(A,B,lin,tin,w1,w2,w3,w4,w,u0,u1)
+	begin
+		w1 <= (A="00" or A="11") and (B="10"); -- A==0 and B==+1
+		w2 <= (A="00" or A="11") and (B="01"); -- A==0 and B==-1
+		w3 <= (B="00" or B="11") and (A="10"); -- B==0 and A==+1
+		w4 <= (B="00" or B="11") and (A="01"); -- B==0 and A==-1
+		w <= w1 or w2 or w3 or w4;
+		u1 <= to_std_logic((not lin) and w); -- tin!=-1 and critical input
+		u0 <= to_std_logic(lin and w); -- tin!=+1 and critical input
+		-- determine lout := A=-1 or B=-1
+		lout <= (A="01") or (B="01");
+		-- tout- holds iff A=B=-1 or tin!=+1 and A+B=-1
+		tout(0) <= ((not A(1) and A(0)) and (not (B(1) and B(0)))) or to_std_logic(lin and (w2 or w4));
+		-- tout+ holds iff A=B=+1 or tin!=-1 and A+B=+1
+		tout(1) <= ((A(1) and not A(0)) and (B(1) and not B(0))) or to_std_logic((not lin) and (w1 or w3));
+		-- determine sum digit
+		S(0) <= (tin(0) and (not u0)) or (u1 and (not tin(1)));
+		S(1) <= (tin(1) and (not u1)) or (u0 and (not tin(0)));
 	end process;
 	
 end bhv;

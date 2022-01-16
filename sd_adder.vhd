@@ -44,13 +44,17 @@ architecture bhv of sd_adder is
 		port (
 			A: in signed_digit;--SD binary number
 			B: in signed_digit;--SD binary number
-			Cin: in signed_digit;--input carry, allows cascading
-			Cout:	out signed_digit;--output carry, allows cascading
-			S:		out signed_digit--A+B+Cin, encoded as SD binary number
+			lin: in boolean;
+			tin: in signed_digit;
+			lout:	out boolean;
+			tout:	out signed_digit;
+			S:		out signed_digit--sum digit encoded as SD binary number
 		);
 	end component;
 	
 	signal C: sd_vector(N-1 downto 0);--C(n): carry output of n-th full adder
+	type bool_vector is array(natural range <>) of boolean;
+	signal l: bool_vector(N-1 downto 0);--l(n): lout of n-th full adder
 	
 	begin
 	
@@ -60,17 +64,21 @@ architecture bhv of sd_adder is
 			sd_fa_0: sd_FA port map (
 				A => A(0),
 				B => B(0),
-				Cin => Cin,
-				Cout=>C(0),
-				S	=> S(0)--A+B+Cin
+				lin =>	false,
+				tin =>	Cin,
+				lout =>	l(0),
+				tout=>	C(0),
+				S	=>		S(0)--A+B+Cin
 			);
 		end generate;
 		add_i: if (i> 0 and i < N) generate
 			sd_fa_i: sd_FA port map (
 				A => A(i),
 				B => B(i),
-				Cin => C(i-1),
-				Cout=>C(i),
+				lin => l(i-1),
+				tin => C(i-1),
+				lout => l(i),
+				tout=> C(i),
 				S	=> S(i)--A+B+Cin
 			);
 		end generate;
