@@ -6,8 +6,8 @@
 -- 	0 | 1 | -1 |
 -- 	1 | 1 |  0 |
 -- 	1 | 0 | +1 |
---output S is '1' if digit is greater or equal than zero
---output S is '0' if digit is negative (-1)
+--output P is '1' if digit is strictly positive (+1)
+--output N is '1' if digit is strictly negative (-1)
 --by Renan Picoli de Souza
 ---------------------------------------------------
 
