@@ -19,7 +19,7 @@ use work.signed_digit_pkg.all;
 entity sd_geq_zero is
 generic (N: natural);--number of digits
 port (
-	A: in sd_vector;--SD binary number
+	A: in sd_vector(N-1 downto 0);--SD binary number
 	S:	out std_logic--is '1' if A is greater or equal than zero
 );
 end entity;
@@ -55,8 +55,8 @@ architecture bhv of sd_geq_zero is
 			end generate;
 			i_others: if i/=D generate
 				breadth: for j in 0 to (2**i-1) generate
-					p(i)(j) <= p(i+1)(2*j) or (not neg(i+1)(2*j) and p(i+1)(2*j+1));
-					neg(i)(j) <= neg(i+1)(2*j) or (not p(i+1)(2*j) and neg(i+1)(2*j+1));
+					p(i)(j) <= p(i+1)(2*j+1) or (not neg(i+1)(2*j+1) and p(i+1)(2*j));
+					neg(i)(j) <= neg(i+1)(2*j+1) or (not p(i+1)(2*j+1) and neg(i+1)(2*j));
 				end generate;
 			end generate;
 	end generate;

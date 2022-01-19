@@ -42,7 +42,7 @@ end component;
 component sd_geq_zero
 generic (N: natural);--number of digits
 port (
-	A: in sd_vector;--SD binary number
+	A: in sd_vector(N-1 downto 0);--SD binary number
 	S:	out std_logic--is '1' if A is greater or equal than zero
 );
 end component;
