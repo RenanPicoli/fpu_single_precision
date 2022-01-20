@@ -94,19 +94,53 @@ begin
 	--D(n) <= A_inter(n) - ('0' & B_expanded_mantissa);
 	--TODO: create a comparator, line below is not enough
 --	C(n) <= '1' when D(n)(24)="00"-- A_inter(n) >= '0' & B_expanded_mantissa
-	C(n) <= '1' when geq_0(n)='1'-- A_inter(n) >= '0' & B_expanded_mantissa
-				else '0';
-	
-	R(n)	<= D(n-1) when (C(n-1) = '1')
-				else A_inter(n-1);
+	C(n) <= geq_0(n);-- A_inter(n) >= '0' & B_expanded_mantissa
 					
 	A_inter(n)	<= R(n)(23 downto 0) & "00";--multiplica o resto intermediário por 2
 
  end generate lines;
+ 
+ 
+	process(D,C,A_inter)
+		variable tmp_R: R_matrix;--para calculo de restos intermediários
+	begin
+		for n in 1 to 26 loop
+			if (C(n-1) = '1') then
+				tmp_R(n)	:= D(n-1); 
+			else
+				tmp_R(n) := A_inter(n-1);
+			end if;
+			
+			--ensure R(n) MSB is zero, if possible (because R(n) will be left shifted
+			if (tmp_R(n)(24)="10" and tmp_R(n)(23)="01") then-- +1 -1 ...
+				R(n)(24) <= "00";-- 0
+				R(n)(23) <= "10";-- +1
+				R(n)(22 downto 0) <= tmp_R(n)(22 downto 0);
+			elsif (tmp_R(n)(24)="01" and tmp_R(n)(23)="10") then-- -1 +1 ...
+				R(n)(24) <= "00";-- 0
+				R(n)(23) <= "01";-- -1
+				R(n)(22 downto 0) <= tmp_R(n)(22 downto 0);
+			elsif (tmp_R(n)(24)="10" and tmp_R(n)(23)="00" and tmp_R(n)(22)="01" and tmp_R(n)(21)="01") then-- +1 0 -1 -1 ...
+				R(n)(24) <= "00";-- 0
+				R(n)(23) <= "10";-- +1
+				R(n)(22) <= "00";-- 0
+				R(n)(21) <= "10";-- +1
+				R(n)(20 downto 0) <= tmp_R(n)(20 downto 0);
+			elsif (tmp_R(n)(24)="01" and tmp_R(n)(23)="00" and tmp_R(n)(22)="10" and tmp_R(n)(21)="10") then-- -1 0 +1 +1 ...
+				R(n)(24) <= "00";-- 0
+				R(n)(23) <= "01";-- -1
+				R(n)(22) <= "00";-- 0
+				R(n)(21) <= "01";-- -1
+				R(n)(20 downto 0) <= tmp_R(n)(20 downto 0);
+			else-- no need for modification
+				R(n)(24 downto 0) <= tmp_R(n)(24 downto 0);
+			end if;
+		end loop;
+	end process;
+ 
  --caso básico
 -- D(0) <= ('0' & A_expanded_mantissa) - ('0' & B_expanded_mantissa);
-C(0) <= '1' when (D(0)(24)="00" or D(0)(24)="11") -- this means A_expanded_mantissa >= B_expanded_mantissa
-			else '0';
+C(0) <= geq_0(0); -- this means A_expanded_mantissa >= B_expanded_mantissa
 			
  -- A_inter(0) <= '0' & A_expanded_mantissa
  -- sd_B <= '0' & B_expanded_mantissa
