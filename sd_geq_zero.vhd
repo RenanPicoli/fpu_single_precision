@@ -37,9 +37,9 @@ architecture bhv of sd_geq_zero is
 		
 		constant D: natural := integer(ceil(log2(real(N))));-- D+1 is the number of comparator "layers"
 		type p_matrix is array (D downto 0) of std_logic_vector(0 to (2**D-1));
-		signal p: p_matrix;--indexes: depth and breadth, respectively
+		signal p: p_matrix := (others=> (others => '0'));--indexes: depth and breadth, respectively
 		type n_matrix is array (D downto 0) of std_logic_vector(0 to (2**D-1));
-		signal neg: n_matrix;--indexes: depth and breadth, respectively
+		signal neg: n_matrix := (others=> (others => '0'));--indexes: depth and breadth, respectively
 	
 	begin
 
