@@ -52,16 +52,16 @@ signal B_fp: float;
 signal A_expanded_mantissa: std_logic_vector(23 downto 0);
 signal B_expanded_mantissa: std_logic_vector(23 downto 0);
 
-type A_matrix is array (0 to 26) of sd_vector(24 downto 0);--precisa 1 digito a mais pq os restos intermediários são multiplicados por 2
-signal A_inter: A_matrix;--dividendos intermediários
+type A_matrix is array (0 to 26) of sd_vector(23+(2*26) downto 0);--precisa 1 digito a mais pq os restos intermediários são multiplicados por 2
+signal A_inter: A_matrix := (others=>(others=>"00"));--dividendos intermediários
 signal C: std_logic_vector(0 to 26);--resultado das comparações + 1bit para arrendondamento (quociente)
-type R_matrix is array (0 to 26) of sd_vector(24 downto 0);--a rigor, só precisa de 23 digitos pq é o tamanho de B_expanded_mantissa
-signal R: R_matrix;--restos intermediários
-type D_matrix is array (0 to 26) of sd_vector(24 downto 0);--a rigor, só precisa de 23 bit pq é o tamanho de B_expanded_mantissa
-signal D: D_matrix;--resultados de diferenças
+type R_matrix is array (0 to 26) of sd_vector(23+(2*26)+1 downto 0);--a rigor, só precisa de 23 digitos pq é o tamanho de B_expanded_mantissa
+signal R: R_matrix := (others=>(others=>"00"));--restos intermediários
+type D_matrix is array (0 to 26) of sd_vector(24+(2*26) downto 0);--a rigor, só precisa de 23 bit pq é o tamanho de B_expanded_mantissa
+signal D: D_matrix := (others=>(others=>"00"));--resultados de diferenças
 
-signal sd_B: sd_vector(24 downto 0);
-signal neg_sd_B: sd_vector(24 downto 0);-- all bits of sd_B are negated (represents -B)
+signal sd_B: sd_vector(23+(2*26) downto 0) := (others => "00");
+signal neg_sd_B: sd_vector(23+(2*26) downto 0) := (others => "11");-- all bits of sd_B are negated (represents -B)
 
 signal geq_0: std_logic_vector(0 to 26);-- geq_0(i) ='1' means D(n) >= 0
 
@@ -74,69 +74,32 @@ begin
 	B_fp <= (B(31),B(30 downto 23),B(22 downto 0));
 	
 	--generates adders for subtractions ( A_inter(n) - ('0' & B_expanded_mantissa) )
-	differences: for i in 0 to 26 generate
-		sub: sd_adder generic map (N => 25)
-		port map (A => A_inter(i),
-					 B => neg_sd_B,-- not ('0' & B_expanded_mantissa)+1
+	stages: for i in 0 to 26 generate
+		sub: sd_adder generic map (N => 24+2*i)--A's size in digits
+		port map (A => A_inter(i)(23+2*i downto 0),
+					 B => neg_sd_B(23+2*i downto 0),-- not ('0' & B_expanded_mantissa)+1
 					 Cin => "00",
-					 Cout => open,
-					 S => D(i));
+					 Cout => D(i)(23+2*i+1),
+					 S => D(i)(23+2*i downto 0));
 		
-		geq_zero_n: sd_geq_zero generic map (N => 25)
+		geq_zero_n: sd_geq_zero generic map (N => 25+2*i)--D's size in digits
 		port map (
-				A => D(i),
+				A => D(i)(24+2*i downto 0),
 				S => geq_0(i)
 		);
-	end generate differences; 
+	end generate stages; 
 
 --signal assignments
  lines: for n in 1 to 26 generate
 	--D(n) <= A_inter(n) - ('0' & B_expanded_mantissa);
-	--TODO: create a comparator, line below is not enough
---	C(n) <= '1' when D(n)(24)="00"-- A_inter(n) >= '0' & B_expanded_mantissa
 	C(n) <= geq_0(n);-- A_inter(n) >= '0' & B_expanded_mantissa
+	
+	R(n)(22+2*n downto 0) <= D(n-1)(22+2*n downto 0) when (C(n-1) = '1') else ("00" & A_inter(n-1)(21+2*n downto 0));
 					
-	A_inter(n)	<= R(n)(23 downto 0) & "00";--multiplica o resto intermediário por 2
+	-- TODO: ensure R(n)(23) = 0
+	A_inter(n)(23+2*n downto 0)	<= R(n)(22+2*n downto 0) & "00";--multiplica o resto intermediário por 2
 
  end generate lines;
- 
- 
-	process(D,C,A_inter)
-		variable tmp_R: R_matrix;--para calculo de restos intermediários
-	begin
-		for n in 1 to 26 loop
-			if (C(n-1) = '1') then
-				tmp_R(n)	:= D(n-1); 
-			else
-				tmp_R(n) := A_inter(n-1);
-			end if;
-			
-			--ensure R(n) MSB is zero, if possible (because R(n) will be left shifted
-			if (tmp_R(n)(24)="10" and tmp_R(n)(23)="01") then-- +1 -1 ...
-				R(n)(24) <= "00";-- 0
-				R(n)(23) <= "10";-- +1
-				R(n)(22 downto 0) <= tmp_R(n)(22 downto 0);
-			elsif (tmp_R(n)(24)="01" and tmp_R(n)(23)="10") then-- -1 +1 ...
-				R(n)(24) <= "00";-- 0
-				R(n)(23) <= "01";-- -1
-				R(n)(22 downto 0) <= tmp_R(n)(22 downto 0);
-			elsif (tmp_R(n)(24)="10" and tmp_R(n)(23)="00" and tmp_R(n)(22)="01" and tmp_R(n)(21)="01") then-- +1 0 -1 -1 ...
-				R(n)(24) <= "00";-- 0
-				R(n)(23) <= "10";-- +1
-				R(n)(22) <= "00";-- 0
-				R(n)(21) <= "10";-- +1
-				R(n)(20 downto 0) <= tmp_R(n)(20 downto 0);
-			elsif (tmp_R(n)(24)="01" and tmp_R(n)(23)="00" and tmp_R(n)(22)="10" and tmp_R(n)(21)="10") then-- -1 0 +1 +1 ...
-				R(n)(24) <= "00";-- 0
-				R(n)(23) <= "01";-- -1
-				R(n)(22) <= "00";-- 0
-				R(n)(21) <= "01";-- -1
-				R(n)(20 downto 0) <= tmp_R(n)(20 downto 0);
-			else-- no need for modification
-				R(n)(24 downto 0) <= tmp_R(n)(24 downto 0);
-			end if;
-		end loop;
-	end process;
  
  --caso básico
 -- D(0) <= ('0' & A_expanded_mantissa) - ('0' & B_expanded_mantissa);
@@ -148,11 +111,9 @@ C(0) <= geq_0(0); -- this means A_expanded_mantissa >= B_expanded_mantissa
 	A_inter(0)(i) <= A_expanded_mantissa(i) & '0';
 	sd_B(i) <= B_expanded_mantissa(i) & '0';
  end generate;
- A_inter(0)(24) <= "00";
- sd_B(24) <= "00";
  
  -- all bits of sd_B are negated (represents -B)
- init_neg_sd_B: for i in 24 downto 0 generate
+ init_neg_sd_B: for i in 23 downto 0 generate
 	neg_sd_B(i)(1) <= not sd_B(i)(1);
 	neg_sd_B(i)(0) <= not sd_B(i)(0);
  end generate;
@@ -215,7 +176,7 @@ process(A,B,A_fp,B_fp,C,R)
 		if (res_expanded_mantissa(1)='0') then-- first non encoded bit
 			--round down
 			res_expanded_mantissa := res_expanded_mantissa;				
-		elsif (res_expanded_mantissa(1)='1' and R(24) /= (24 downto 0 =>"00")) then
+		elsif (res_expanded_mantissa(1)='1' and R(24) /= (23 downto 0 =>"00")) then
 			--round up
 			res_expanded_mantissa(25 downto 2) := res_expanded_mantissa(25 downto 2) + 1;--might need normalization again
 			res_expanded_mantissa (1 downto 0) := "00";
