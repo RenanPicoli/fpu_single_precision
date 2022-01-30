@@ -40,7 +40,7 @@ signal fpu_div_overflow: std_logic;
 signal fpu_div_underflow: std_logic;
 signal fpu_div_divideByZero: std_logic;
 
-constant EN_FAST_DIV: boolean := true;
+constant EN_FAST_DIV: boolean := false;
 constant EN_SIGNED_DIGIT: boolean := true;
 
 component fpu_adder
